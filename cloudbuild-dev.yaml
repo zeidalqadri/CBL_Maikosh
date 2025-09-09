@@ -1,0 +1,138 @@
+# Development Environment CI/CD Pipeline
+# Fast feedback loop with minimal resource allocation
+
+steps:
+  # Stage 1: Quick Setup
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "=== CBL-MAIKOSH Development Pipeline ==="
+        echo "Build ID: $BUILD_ID"
+        echo "Environment: dev"
+        echo "Branch: $_BRANCH_NAME"
+
+  # Stage 2: Fast Dependency Installation
+  - name: 'node:20-alpine'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        echo "=== Installing Dependencies (Dev Mode) ==="
+        npm ci --prefer-offline
+
+  # Stage 3: Quick Lint Check
+  - name: 'node:20-alpine'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        echo "=== Quick Lint Check ==="
+        npm run lint
+
+  # Stage 4: Unit Tests Only
+  - name: 'node:20-alpine'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        echo "=== Running Unit Tests ==="
+        npm test -- --watchAll=false --passWithNoTests --testTimeout=10000
+    env:
+      - 'NODE_ENV=test'
+      - 'CI=true'
+
+  # Stage 5: Build Application
+  - name: 'node:20-alpine'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        echo "=== Building Application ==="
+        npm run build
+    env:
+      - 'NODE_ENV=development'
+      - 'NEXT_TELEMETRY_DISABLED=1'
+
+  # Stage 6: Build Container
+  - name: 'gcr.io/cloud-builders/docker'
+    args: 
+      - 'build'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:dev-$BUILD_ID'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:dev-latest'
+      - '.'
+
+  # Stage 7: Push Container
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '--all-tags', 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app']
+
+  # Stage 8: Deploy to Development
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'cbl-maikosh-app-dev'
+      - '--image'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:dev-$BUILD_ID'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--memory'
+      - '512Mi'
+      - '--cpu'
+      - '1'
+      - '--timeout'
+      - '300'
+      - '--concurrency'
+      - '100'
+      - '--max-instances'
+      - '5'
+      - '--min-instances'
+      - '0'
+      - '--port'
+      - '8080'
+      - '--service-account'
+      - 'cbl-maikosh-service@$PROJECT_ID.iam.gserviceaccount.com'
+      - '--set-env-vars'
+      - '^#^NODE_ENV=development#NEXT_PUBLIC_API_URL=https://cbl-maikosh-app-dev-$PROJECT_ID.a.run.app/api#AUTH0_BASE_URL=https://cbl-maikosh-app-dev-$PROJECT_ID.a.run.app#GCP_PROJECT_ID=$PROJECT_ID#GCP_STORAGE_BUCKET=cbl-maikosh-dev-storage-$PROJECT_ID#NEXT_TELEMETRY_DISABLED=1'
+      - '--set-secrets'
+      - '^#^AUTH0_SECRET=auth0-secret:latest#AUTH0_CLIENT_ID=auth0-client-id:latest#AUTH0_CLIENT_SECRET=auth0-client-secret:latest#AUTH0_ISSUER_BASE_URL=auth0-issuer-url:latest#FIREBASE_API_KEY=firebase-api-key:latest#FIREBASE_AUTH_DOMAIN=firebase-auth-domain:latest#FIREBASE_PROJECT_ID=firebase-project-id:latest#FIREBASE_STORAGE_BUCKET=firebase-storage-bucket:latest#FIREBASE_MESSAGING_SENDER_ID=firebase-messaging-sender-id:latest#FIREBASE_APP_ID=firebase-app-id:latest#GA_MEASUREMENT_ID=ga-measurement-id:latest'
+      - '--labels'
+      - 'environment=dev,application=cbl-maikosh,tier=web'
+
+  # Stage 9: Quick Health Check
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "=== Quick Health Check ==="
+        SERVICE_URL=$(gcloud run services describe cbl-maikosh-app-dev --region=us-central1 --format='value(status.url)')
+        
+        # Wait briefly for service
+        sleep 30
+        
+        if curl -f -s "$SERVICE_URL/api/health"; then
+          echo "Development deployment successful: $SERVICE_URL"
+        else
+          echo "Health check failed but proceeding (dev environment)"
+        fi
+
+substitutions:
+  _BRANCH_NAME: 'develop'
+
+images:
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:dev-$BUILD_ID'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:dev-latest'
+
+timeout: '900s'  # 15 minutes for fast feedback
+options:
+  machineType: 'E2_STANDARD_4'  # Standard resources for dev
+  diskSizeGb: 50
+  logging: CLOUD_LOGGING_ONLY

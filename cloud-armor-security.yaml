@@ -1,0 +1,418 @@
+# Cloud Armor DDoS Protection Configuration for CBL-MAIKOSH Basketball Coaching Platform
+# Comprehensive security policy to protect against attacks and abuse
+
+apiVersion: compute.cnrm.cloud.google.com/v1beta1
+kind: ComputeSecurityPolicy
+metadata:
+  name: cbl-maikosh-security-policy
+  namespace: cbl-maikosh-prod
+spec:
+  description: "Cloud Armor security policy for CBL-MAIKOSH basketball coaching platform"
+  
+  # Default allow rule (lowest priority)
+  rules:
+  - priority: 2147483647
+    description: "Default allow rule for all traffic"
+    action: "allow"
+    match:
+      versionedExpr: "SRC_IPS_V1"
+      config:
+        srcIpRanges: ["*"]
+    
+  # Rate limiting for general traffic
+  - priority: 1000
+    description: "Rate limit: 100 requests per minute per IP"
+    action: "rate_based_ban"
+    match:
+      versionedExpr: "SRC_IPS_V1"
+      config:
+        srcIpRanges: ["*"]
+    rateLimitOptions:
+      conformAction: "allow"
+      exceedAction: "deny(429)"
+      enforceOnKey: "IP"
+      rateLimitThreshold:
+        count: 100
+        intervalSec: 60
+      banDurationSec: 600
+      
+  # Stricter rate limiting for API endpoints
+  - priority: 1001
+    description: "API rate limit: 50 requests per minute per IP"
+    action: "rate_based_ban"
+    match:
+      expr:
+        expression: "request.path.startsWith('/api/')"
+    rateLimitOptions:
+      conformAction: "allow"
+      exceedAction: "deny(429)"
+      enforceOnKey: "IP"
+      rateLimitThreshold:
+        count: 50
+        intervalSec: 60
+      banDurationSec: 900
+      
+  # Block known malicious IP ranges
+  - priority: 1100
+    description: "Block known malicious IP ranges"
+    action: "deny(403)"
+    match:
+      versionedExpr: "SRC_IPS_V1"
+      config:
+        srcIpRanges:
+          - "185.220.100.0/22"  # Known Tor exit nodes
+          - "198.98.51.0/24"    # Known malicious range
+          - "185.165.29.0/24"   # Suspicious activity range
+    
+  # Block traffic from high-risk countries
+  - priority: 1200
+    description: "Block traffic from high-risk regions"
+    action: "deny(403)"
+    match:
+      expr:
+        expression: |
+          origin.region_code == 'CN' || 
+          origin.region_code == 'RU' || 
+          origin.region_code == 'IR' || 
+          origin.region_code == 'KP'
+    
+  # Block common attack patterns
+  - priority: 1300
+    description: "Block SQL injection attempts"
+    action: "deny(403)"
+    match:
+      expr:
+        expression: |
+          request.path.contains('union select') || 
+          request.path.contains('drop table') || 
+          request.path.contains('insert into') ||
+          request.query.contains('union select') ||
+          request.query.contains('drop table')
+    
+  # Block XSS attempts
+  - priority: 1301
+    description: "Block XSS attempts"
+    action: "deny(403)"
+    match:
+      expr:
+        expression: |
+          request.path.contains('<script') || 
+          request.path.contains('javascript:') ||
+          request.query.contains('<script') ||
+          request.query.contains('javascript:')
+    
+  # Block directory traversal attempts
+  - priority: 1302
+    description: "Block directory traversal attempts"
+    action: "deny(403)"
+    match:
+      expr:
+        expression: |
+          request.path.contains('../') || 
+          request.path.contains('..\\') ||
+          request.path.contains('/etc/passwd') ||
+          request.path.contains('/etc/shadow')
+    
+  # Block requests with suspicious user agents
+  - priority: 1400
+    description: "Block suspicious user agents"
+    action: "deny(403)"
+    match:
+      expr:
+        expression: |
+          request.headers['user-agent'].contains('sqlmap') ||
+          request.headers['user-agent'].contains('nikto') ||
+          request.headers['user-agent'].contains('nmap') ||
+          request.headers['user-agent'].contains('masscan') ||
+          request.headers['user-agent'] == '' ||
+          !request.headers.hasKey('user-agent')
+    
+  # Allow health checks and monitoring
+  - priority: 500
+    description: "Allow Google Health Checks"
+    action: "allow"
+    match:
+      versionedExpr: "SRC_IPS_V1"
+      config:
+        srcIpRanges:
+          - "130.211.0.0/22"    # Google health check IPs
+          - "35.191.0.0/16"     # Google health check IPs
+          - "108.177.8.0/21"    # Google crawler IPs
+    
+  # Allow legitimate monitoring services
+  - priority: 600
+    description: "Allow legitimate monitoring"
+    action: "allow"
+    match:
+      expr:
+        expression: |
+          request.path == '/api/health' ||
+          request.path == '/api/metrics' ||
+          request.path == '/favicon.ico' ||
+          request.path == '/robots.txt'
+    
+  # Adaptive protection settings
+  adaptiveProtectionConfig:
+    layer7DdosDefenseConfig:
+      enable: true
+      ruleVisibility: "STANDARD"
+    
+  # Advanced DDoS protection
+  advancedOptionsConfig:
+    jsonParsing: "STANDARD"
+    jsonCustomConfig:
+      contentTypes:
+        - "application/json"
+        - "application/vnd.api+json"
+    logLevel: "NORMAL"
+    userIpRequestHeaders:
+      - "X-Forwarded-For"
+      - "X-Real-IP"
+      - "X-Client-IP"
+
+---
+# Deployment script for Cloud Armor
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloud-armor-deployment
+data:
+  deploy-cloud-armor.sh: |
+    #!/bin/bash
+    set -e
+    
+    PROJECT_ID=${PROJECT_ID:-zeidgeistdotcom}
+    POLICY_NAME=${POLICY_NAME:-cbl-maikosh-security-policy}
+    
+    echo "🏀 Deploying Cloud Armor Security Policy for CBL-MAIKOSH..."
+    
+    # Create security policy
+    echo "🛡️ Creating security policy..."
+    gcloud compute security-policies create $POLICY_NAME \
+        --description "Security policy for CBL-MAIKOSH basketball coaching platform" \
+        --project=$PROJECT_ID || echo "Policy already exists"
+    
+    # Add rate limiting rule
+    echo "⏱️ Adding rate limiting rules..."
+    gcloud compute security-policies rules create 1000 \
+        --security-policy=$POLICY_NAME \
+        --expression="origin.region_code != 'US' && origin.region_code != 'CA'" \
+        --action="rate_based_ban" \
+        --rate-limit-threshold-count=100 \
+        --rate-limit-threshold-interval-sec=60 \
+        --ban-duration-sec=600 \
+        --conform-action=allow \
+        --exceed-action="deny-429" \
+        --enforce-on-key=IP \
+        --project=$PROJECT_ID || echo "Rule already exists"
+    
+    # Block malicious regions
+    echo "🌍 Adding geo-blocking rules..."
+    gcloud compute security-policies rules create 1200 \
+        --security-policy=$POLICY_NAME \
+        --expression="origin.region_code == 'CN' || origin.region_code == 'RU'" \
+        --action="deny-403" \
+        --project=$PROJECT_ID || echo "Rule already exists"
+    
+    # Block SQL injection
+    echo "💉 Adding SQL injection protection..."
+    gcloud compute security-policies rules create 1300 \
+        --security-policy=$POLICY_NAME \
+        --expression="request.query.matches('(?i)(union|select|insert|delete|drop|create|alter|exec)')" \
+        --action="deny-403" \
+        --project=$PROJECT_ID || echo "Rule already exists"
+    
+    # Block XSS
+    echo "🔒 Adding XSS protection..."
+    gcloud compute security-policies rules create 1301 \
+        --security-policy=$POLICY_NAME \
+        --expression="request.query.matches('(?i)(<script|javascript:|onerror|onload)')" \
+        --action="deny-403" \
+        --project=$PROJECT_ID || echo "Rule already exists"
+    
+    # Allow health checks
+    echo "❤️ Allowing health check traffic..."
+    gcloud compute security-policies rules create 500 \
+        --security-policy=$POLICY_NAME \
+        --src-ip-ranges="130.211.0.0/22,35.191.0.0/16" \
+        --action=allow \
+        --project=$PROJECT_ID || echo "Rule already exists"
+    
+    # Enable adaptive protection
+    echo "🧠 Enabling adaptive protection..."
+    gcloud compute security-policies update $POLICY_NAME \
+        --enable-layer7-ddos-defense \
+        --layer7-ddos-defense-rule-visibility=STANDARD \
+        --project=$PROJECT_ID
+    
+    echo "✅ Cloud Armor security policy deployed successfully!"
+    echo "🛡️ Policy: $POLICY_NAME"
+    echo ""
+    echo "Next steps:"
+    echo "1. Attach this policy to your backend service:"
+    echo "   gcloud compute backend-services update cbl-maikosh-backend-service --security-policy=$POLICY_NAME --global"
+    echo "2. Monitor security events in Cloud Logging"
+    echo "3. Adjust rules based on legitimate traffic patterns"
+
+---
+# Monitoring and alerting for security events
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: security-monitoring
+data:
+  setup-security-monitoring.sh: |
+    #!/bin/bash
+    set -e
+    
+    PROJECT_ID=${PROJECT_ID:-zeidgeistdotcom}
+    NOTIFICATION_EMAIL=${NOTIFICATION_EMAIL:-zeidalqadri@gmail.com}
+    
+    echo "🏀 Setting up security monitoring for CBL-MAIKOSH..."
+    
+    # Create notification channel
+    echo "📧 Creating notification channel..."
+    cat > notification-channel.yaml << EOF
+    displayName: "CBL-MAIKOSH Security Alerts"
+    type: "email"
+    labels:
+      email_address: "$NOTIFICATION_EMAIL"
+    EOF
+    
+    gcloud alpha monitoring channels create --channel-content-from-file=notification-channel.yaml --project=$PROJECT_ID || echo "Channel already exists"
+    
+    # Get notification channel ID
+    CHANNEL_ID=$(gcloud alpha monitoring channels list --filter="displayName:'CBL-MAIKOSH Security Alerts'" --format="value(name)" --project=$PROJECT_ID)
+    
+    # Create security alert policy
+    echo "🚨 Creating security alert policies..."
+    cat > security-alert-policy.yaml << EOF
+    displayName: "CBL-MAIKOSH High Security Events"
+    conditions:
+    - displayName: "High rate of blocked requests"
+      conditionThreshold:
+        filter: 'resource.type="gce_backend_service" AND log_name="projects/$PROJECT_ID/logs/requests" AND jsonPayload.statusCode>=400'
+        comparison: COMPARISON_GREATER_THAN
+        thresholdValue: 10
+        duration: 300s
+        aggregations:
+        - alignmentPeriod: 60s
+          perSeriesAligner: ALIGN_RATE
+          crossSeriesReducer: REDUCE_SUM
+    alertStrategy:
+      autoClose: 86400s
+    notificationChannels:
+    - $CHANNEL_ID
+    EOF
+    
+    gcloud alpha monitoring policies create --policy-from-file=security-alert-policy.yaml --project=$PROJECT_ID || echo "Policy already exists"
+    
+    # Create DDoS detection alert
+    cat > ddos-alert-policy.yaml << EOF
+    displayName: "CBL-MAIKOSH Potential DDoS Attack"
+    conditions:
+    - displayName: "Unusual traffic spike"
+      conditionThreshold:
+        filter: 'resource.type="gce_backend_service" AND log_name="projects/$PROJECT_ID/logs/requests"'
+        comparison: COMPARISON_GREATER_THAN
+        thresholdValue: 1000
+        duration: 60s
+        aggregations:
+        - alignmentPeriod: 60s
+          perSeriesAligner: ALIGN_RATE
+          crossSeriesReducer: REDUCE_SUM
+    alertStrategy:
+      autoClose: 3600s
+    notificationChannels:
+    - $CHANNEL_ID
+    EOF
+    
+    gcloud alpha monitoring policies create --policy-from-file=ddos-alert-policy.yaml --project=$PROJECT_ID || echo "Policy already exists"
+    
+    echo "✅ Security monitoring configured successfully!"
+    echo "📊 View security events: https://console.cloud.google.com/logs/query"
+    echo "🚨 Monitor alerts: https://console.cloud.google.com/monitoring/alerting"
+    echo ""
+    echo "Security filter for Cloud Logging:"
+    echo 'resource.type="gce_backend_service" AND jsonPayload.statusCode>=400'
+    
+    # Cleanup
+    rm -f notification-channel.yaml security-alert-policy.yaml ddos-alert-policy.yaml
+
+---
+# Security dashboard configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: security-dashboard
+data:
+  dashboard-config.json: |
+    {
+      "displayName": "CBL-MAIKOSH Security Dashboard",
+      "mosaicLayout": {
+        "tiles": [
+          {
+            "width": 6,
+            "height": 4,
+            "widget": {
+              "title": "Blocked Requests by Cloud Armor",
+              "xyChart": {
+                "dataSets": [
+                  {
+                    "timeSeriesQuery": {
+                      "timeSeriesFilter": {
+                        "filter": "resource.type=\"gce_backend_service\" AND metric.type=\"compute.googleapis.com/https/backend_request_count\"",
+                        "aggregation": {
+                          "alignmentPeriod": "60s",
+                          "perSeriesAligner": "ALIGN_RATE",
+                          "crossSeriesReducer": "REDUCE_SUM"
+                        }
+                      }
+                    },
+                    "targetAxis": "Y1"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "width": 6,
+            "height": 4,
+            "yPos": 0,
+            "xPos": 6,
+            "widget": {
+              "title": "Geographic Distribution of Requests",
+              "xyChart": {
+                "dataSets": [
+                  {
+                    "timeSeriesQuery": {
+                      "timeSeriesFilter": {
+                        "filter": "resource.type=\"gce_backend_service\" AND metric.type=\"loadbalancing.googleapis.com/https/request_count\"",
+                        "aggregation": {
+                          "alignmentPeriod": "60s",
+                          "perSeriesAligner": "ALIGN_RATE",
+                          "crossSeriesReducer": "REDUCE_SUM",
+                          "groupByFields": ["metric.label.country"]
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "width": 12,
+            "height": 4,
+            "yPos": 4,
+            "widget": {
+              "title": "Top Security Events",
+              "logsPanel": {
+                "filter": "resource.type=\"gce_backend_service\" AND jsonPayload.statusCode>=400",
+                "resourceNames": []
+              }
+            }
+          }
+        ]
+      }
+    }

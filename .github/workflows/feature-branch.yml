@@ -1,0 +1,193 @@
+# Feature Branch CI/CD Pipeline
+# Triggered on feature branches for development deployments
+
+name: 🌿 Feature Branch Pipeline
+
+on:
+  push:
+    branches:
+      - 'feature/**'
+      - 'hotfix/**'
+      - 'bugfix/**'
+      - 'develop'
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  SERVICE_NAME: cbl-maikosh-app
+  REGION: us-central1
+  REGISTRY: us-central1-docker.pkg.dev
+
+jobs:
+  # Job 1: Fast Quality Check
+  quick-check:
+    name: 🏃‍♂️ Quick Quality Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 📦 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+
+    - name: 🔧 Install Dependencies
+      run: npm ci
+
+    - name: 🔍 Run ESLint
+      run: npm run lint
+
+    - name: 🧪 Run Unit Tests
+      run: npm test -- --watchAll=false --passWithNoTests --testTimeout=10000
+      env:
+        CI: true
+
+    - name: 🛡️ Quick Security Check
+      run: npm audit --audit-level=high
+
+    - name: 🏗️ Test Build
+      run: npm run build
+      env:
+        NODE_ENV: development
+
+  # Job 2: Feature Branch Deployment
+  deploy-feature:
+    name: 🚀 Deploy Feature Branch
+    runs-on: ubuntu-latest
+    needs: quick-check
+    if: github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip deploy]')
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🔐 Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    - name: ⚙️ Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+
+    - name: 🔑 Configure Docker for Artifact Registry
+      run: gcloud auth configure-docker $REGISTRY
+
+    - name: 🏷️ Generate Branch Tag
+      id: branch-tag
+      run: |
+        BRANCH_NAME=${GITHUB_REF#refs/heads/}
+        SAFE_BRANCH_NAME=$(echo "$BRANCH_NAME" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
+        echo "branch-tag=$SAFE_BRANCH_NAME" >> $GITHUB_OUTPUT
+        echo "service-name=cbl-maikosh-app-$SAFE_BRANCH_NAME" >> $GITHUB_OUTPUT
+
+    - name: 🏗️ Build and Push Container
+      run: |
+        docker build \
+          --tag $REGISTRY/$PROJECT_ID/cbl-maikosh-repo/$SERVICE_NAME:feature-${{ steps.branch-tag.outputs.branch-tag }}-$GITHUB_SHA \
+          --tag $REGISTRY/$PROJECT_ID/cbl-maikosh-repo/$SERVICE_NAME:feature-${{ steps.branch-tag.outputs.branch-tag }}-latest \
+          .
+        
+        docker push $REGISTRY/$PROJECT_ID/cbl-maikosh-repo/$SERVICE_NAME:feature-${{ steps.branch-tag.outputs.branch-tag }}-$GITHUB_SHA
+        docker push $REGISTRY/$PROJECT_ID/cbl-maikosh-repo/$SERVICE_NAME:feature-${{ steps.branch-tag.outputs.branch-tag }}-latest
+
+    - name: 🚀 Deploy Feature Branch Service
+      run: |
+        gcloud run deploy ${{ steps.branch-tag.outputs.service-name }} \
+          --image $REGISTRY/$PROJECT_ID/cbl-maikosh-repo/$SERVICE_NAME:feature-${{ steps.branch-tag.outputs.branch-tag }}-$GITHUB_SHA \
+          --region $REGION \
+          --platform managed \
+          --allow-unauthenticated \
+          --memory 512Mi \
+          --cpu 1 \
+          --timeout 300 \
+          --concurrency 80 \
+          --max-instances 3 \
+          --min-instances 0 \
+          --port 8080 \
+          --service-account cbl-maikosh-service@$PROJECT_ID.iam.gserviceaccount.com \
+          --set-env-vars NODE_ENV=development,NEXT_PUBLIC_API_URL=https://${{ steps.branch-tag.outputs.service-name }}-$PROJECT_ID.a.run.app/api,AUTH0_BASE_URL=https://${{ steps.branch-tag.outputs.service-name }}-$PROJECT_ID.a.run.app,GCP_PROJECT_ID=$PROJECT_ID,NEXT_TELEMETRY_DISABLED=1,FEATURE_BRANCH=${{ steps.branch-tag.outputs.branch-tag }} \
+          --set-secrets AUTH0_SECRET=auth0-secret:latest,AUTH0_CLIENT_ID=auth0-client-id:latest,AUTH0_CLIENT_SECRET=auth0-client-secret:latest,AUTH0_ISSUER_BASE_URL=auth0-issuer-url:latest \
+          --labels environment=feature,application=cbl-maikosh,tier=web,branch=${{ steps.branch-tag.outputs.branch-tag }}
+
+    - name: 🔍 Quick Health Check
+      run: |
+        SERVICE_URL=$(gcloud run services describe ${{ steps.branch-tag.outputs.service-name }} --region $REGION --format='value(status.url)')
+        echo "Feature branch deployed at: $SERVICE_URL"
+        
+        # Wait and test
+        sleep 30
+        curl -f "$SERVICE_URL/api/health" || echo "Health check warning (feature branch)"
+
+    - name: 💬 Comment on PR
+      if: github.event_name == 'push' && github.event.pull_request
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const branchTag = '${{ steps.branch-tag.outputs.branch-tag }}';
+          const serviceName = '${{ steps.branch-tag.outputs.service-name }}';
+          const serviceUrl = `https://${serviceName}-${{ env.PROJECT_ID }}.a.run.app`;
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: `🚀 **Feature Branch Deployment**
+            
+            Your feature branch has been deployed for testing!
+            
+            - **Branch**: \`${context.ref.replace('refs/heads/', '')}\`
+            - **Service URL**: ${serviceUrl}
+            - **Commit**: ${context.sha.substring(0, 7)}
+            
+            🔍 **Quick Links:**
+            - [Application](${serviceUrl})
+            - [Health Check](${serviceUrl}/api/health)
+            - [API Status](${serviceUrl}/api/status)
+            
+            This deployment will be automatically cleaned up when the PR is merged or closed.`
+          });
+
+  # Job 3: Auto-cleanup on branch deletion
+  cleanup-on-delete:
+    name: 🧹 Cleanup Feature Deployment
+    runs-on: ubuntu-latest
+    if: github.event_name == 'delete' && github.event.ref_type == 'branch'
+    
+    steps:
+    - name: 🔐 Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    - name: ⚙️ Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+
+    - name: 🏷️ Generate Branch Tag
+      id: branch-tag
+      run: |
+        SAFE_BRANCH_NAME=$(echo "${{ github.event.ref }}" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
+        echo "service-name=cbl-maikosh-app-$SAFE_BRANCH_NAME" >> $GITHUB_OUTPUT
+
+    - name: 🗑️ Delete Feature Service
+      run: |
+        gcloud run services delete ${{ steps.branch-tag.outputs.service-name }} \
+          --region $REGION \
+          --quiet || echo "Service already deleted or doesn't exist"
+
+    - name: 🏷️ Clean up Container Images
+      run: |
+        # Delete feature branch images
+        gcloud artifacts docker images list \
+          $REGISTRY/$PROJECT_ID/cbl-maikosh-repo/$SERVICE_NAME \
+          --filter="tags~feature-${{ steps.branch-tag.outputs.branch-tag }}" \
+          --format="value(IMAGE_URI)" | \
+        xargs -I {} gcloud artifacts docker images delete {} --quiet || echo "Images cleaned up"
+
+# Permissions for feature branch operations
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write

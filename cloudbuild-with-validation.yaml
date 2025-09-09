@@ -1,0 +1,160 @@
+steps:
+  # Validate build context size before building
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:alpine'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        set -e
+        echo "=== Pre-build Context Validation ==="
+        
+        # Count files and calculate total source size
+        TOTAL_SIZE=$$(du -sh . | cut -f1)
+        TOTAL_FILES=$$(find . -type f | wc -l)
+        
+        echo "Total source directory size: $$TOTAL_SIZE"
+        echo "Total source files: $$TOTAL_FILES"
+        
+        # Check for large problematic directories
+        echo "Checking for large directories that should be ignored:"
+        for dir in node_modules .next .git docs scripts terraform monitoring .claude .github; do
+          if [ -d "$$dir" ]; then
+            SIZE=$$(du -sh "$$dir" 2>/dev/null | cut -f1)
+            FILES=$$(find "$$dir" -type f 2>/dev/null | wc -l)
+            echo "  $$dir: $$SIZE ($$FILES files)"
+            
+            # Fail if these directories are not properly ignored
+            if [ "$$dir" = "node_modules" ] || [ "$$dir" = ".next" ]; then
+              echo "❌ CRITICAL: $$dir should be excluded by .gcloudignore"
+              echo "This will cause massive context uploads to Cloud Build"
+              exit 1
+            fi
+          fi
+        done
+        
+        # Simulate what gcloudignore would exclude
+        if [ -f .gcloudignore ]; then
+          echo "✅ .gcloudignore file found"
+          
+          # Create test directory to simulate upload
+          TEST_DIR=$$(mktemp -d)
+          rsync -av --exclude-from=.gcloudignore . "$$TEST_DIR/" >/dev/null 2>&1
+          
+          FILTERED_SIZE=$$(du -sh "$$TEST_DIR" | cut -f1)
+          FILTERED_FILES=$$(find "$$TEST_DIR" -type f | wc -l)
+          
+          echo "Estimated Cloud Build context size: $$FILTERED_SIZE"
+          echo "Estimated Cloud Build file count: $$FILTERED_FILES"
+          
+          rm -rf "$$TEST_DIR"
+          
+          # Validate size limits
+          SIZE_NUM=$$(echo "$$FILTERED_SIZE" | sed 's/[^0-9.]//g')
+          
+          if (( FILTERED_FILES > 1000 )); then
+            echo "❌ FAIL: Context has $$FILTERED_FILES files (max: 1000)"
+            exit 1
+          fi
+          
+          # Check if size is reasonable (less than 50MB)
+          if [[ "$$FILTERED_SIZE" == *G* ]]; then
+            echo "❌ FAIL: Context size $$FILTERED_SIZE is too large (should be < 50MB)"
+            exit 1
+          fi
+          
+          if [[ "$$FILTERED_SIZE" == *M* ]] && (( $$(echo "$$SIZE_NUM > 50" | bc -l) )); then
+            echo "❌ FAIL: Context size $$FILTERED_SIZE exceeds 50MB limit"
+            exit 1
+          fi
+          
+          echo "✅ PASS: Context size and file count are acceptable"
+        else
+          echo "❌ WARNING: No .gcloudignore file found - context may be very large"
+        fi
+        
+        echo "=== Validation Complete ==="
+
+  # Build the container image with optimization
+  - name: 'gcr.io/cloud-builders/docker'
+    args: 
+      - 'build'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:$BUILD_ID'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:latest'
+      - '--cache-from'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:latest'
+      - '--build-arg'
+      - 'BUILDKIT_INLINE_CACHE=1'
+      - '.'
+  
+  # Push both tagged images to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '--all-tags', 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app']
+  
+  # Deploy container image to Cloud Run with comprehensive settings
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'cbl-maikosh-app'
+      - '--image'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:$BUILD_ID'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--memory'
+      - '2Gi'
+      - '--cpu'
+      - '2'
+      - '--timeout'
+      - '900'
+      - '--concurrency'
+      - '1000'
+      - '--max-instances'
+      - '100'
+      - '--min-instances'
+      - '1'
+      - '--port'
+      - '8080'
+      - '--service-account'
+      - 'cbl-maikosh-service@$PROJECT_ID.iam.gserviceaccount.com'
+      - '--set-env-vars'
+      - '^#^NODE_ENV=production#NEXT_PUBLIC_API_URL=https://cbl-maikosh-app-$_ENVIRONMENT-$PROJECT_ID.a.run.app/api#AUTH0_BASE_URL=https://cbl-maikosh-app-$_ENVIRONMENT-$PROJECT_ID.a.run.app#GCP_PROJECT_ID=$PROJECT_ID#GCP_STORAGE_BUCKET=cbl-maikosh-$_ENVIRONMENT-storage-$PROJECT_ID#NEXT_TELEMETRY_DISABLED=1'
+      - '--set-secrets'
+      - '^#^AUTH0_SECRET=auth0-secret:latest#AUTH0_CLIENT_ID=auth0-client-id:latest#AUTH0_CLIENT_SECRET=auth0-client-secret:latest#AUTH0_ISSUER_BASE_URL=auth0-issuer-url:latest#FIREBASE_API_KEY=firebase-api-key:latest#FIREBASE_AUTH_DOMAIN=firebase-auth-domain:latest#FIREBASE_PROJECT_ID=firebase-project-id:latest#FIREBASE_STORAGE_BUCKET=firebase-storage-bucket:latest#FIREBASE_MESSAGING_SENDER_ID=firebase-messaging-sender-id:latest#FIREBASE_APP_ID=firebase-app-id:latest#GA_MEASUREMENT_ID=ga-measurement-id:latest'
+      - '--labels'
+      - 'environment=$_ENVIRONMENT,application=cbl-maikosh,tier=web'
+      - '--tag'
+      - '$_ENVIRONMENT'
+  
+  # Configure traffic allocation (100% to latest revision)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'services'
+      - 'update-traffic'
+      - 'cbl-maikosh-app'
+      - '--to-latest'
+      - '--region'
+      - 'us-central1'
+
+# Substitutions for environment-specific deployments
+substitutions:
+  _ENVIRONMENT: 'prod'
+
+# Images to be pushed to registry
+images:
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:$BUILD_ID'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:latest'
+
+# Build configuration
+timeout: '2400s'  # 40 minutes
+options:
+  machineType: 'E2_HIGHCPU_8'  # High CPU for faster builds
+  diskSizeGb: 100
+  logging: CLOUD_LOGGING_ONLY

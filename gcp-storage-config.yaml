@@ -1,0 +1,220 @@
+# Cloud Storage Configuration for CBL-MAIKOSH Basketball Coaching Platform
+# This configuration sets up buckets for different types of content with appropriate policies
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cbl-maikosh-storage-config
+data:
+  # Production Storage Bucket Configuration
+  production-bucket-config: |
+    name: cbl-maikosh-prod-storage-zeidgeistdotcom
+    location: US-CENTRAL1
+    storageClass: STANDARD
+    versioning: true
+    lifecycle:
+      - action: Delete
+        condition:
+          age: 365  # Delete after 1 year for old versions
+      - action: SetStorageClass
+        condition:
+          age: 30
+        storageClass: NEARLINE  # Move to cheaper storage after 30 days
+      - action: SetStorageClass
+        condition:
+          age: 90
+        storageClass: COLDLINE  # Move to even cheaper storage after 90 days
+    
+    # CORS Configuration for web access
+    cors:
+      - origin: 
+          - "https://cbl-maikosh-app-prod-zeidgeistdotcom.a.run.app"
+          - "https://www.cbl-maikosh.com"
+          - "https://cbl-maikosh.com"
+        method:
+          - GET
+          - PUT
+          - POST
+          - HEAD
+        responseHeader:
+          - "Content-Type"
+          - "x-goog-resumable"
+        maxAgeSeconds: 3600
+
+    # IAM Bindings
+    iamBindings:
+      - role: roles/storage.objectViewer
+        members:
+          - allUsers  # Public read access for course materials
+      - role: roles/storage.objectCreator
+        members:
+          - serviceAccount:cbl-maikosh-service@zeidgeistdotcom.iam.gserviceaccount.com
+      - role: roles/storage.objectAdmin
+        members:
+          - serviceAccount:cbl-maikosh-service@zeidgeistdotcom.iam.gserviceaccount.com
+
+  # Staging Storage Bucket Configuration
+  staging-bucket-config: |
+    name: cbl-maikosh-staging-storage-zeidgeistdotcom
+    location: US-CENTRAL1
+    storageClass: STANDARD
+    versioning: true
+    lifecycle:
+      - action: Delete
+        condition:
+          age: 90  # Delete after 90 days for staging
+
+    # CORS Configuration for staging
+    cors:
+      - origin: 
+          - "https://cbl-maikosh-app-staging-zeidgeistdotcom.a.run.app"
+        method:
+          - GET
+          - PUT
+          - POST
+          - HEAD
+        responseHeader:
+          - "Content-Type"
+          - "x-goog-resumable"
+        maxAgeSeconds: 3600
+
+    # IAM Bindings for staging
+    iamBindings:
+      - role: roles/storage.objectViewer
+        members:
+          - allUsers
+      - role: roles/storage.objectAdmin
+        members:
+          - serviceAccount:cbl-maikosh-service@zeidgeistdotcom.iam.gserviceaccount.com
+
+  # CDN-optimized bucket for static assets
+  cdn-bucket-config: |
+    name: cbl-maikosh-cdn-assets-zeidgeistdotcom
+    location: US
+    storageClass: STANDARD
+    
+    # Optimized for CDN delivery
+    publicAccessPrevention: inherited
+    uniformBucketLevelAccess: true
+    
+    # Cache-friendly lifecycle
+    lifecycle:
+      - action: SetStorageClass
+        condition:
+          age: 365
+        storageClass: NEARLINE
+
+    # Public access for CDN
+    iamBindings:
+      - role: roles/storage.objectViewer
+        members:
+          - allUsers
+
+  # User uploads bucket with stricter security
+  uploads-bucket-config: |
+    name: cbl-maikosh-user-uploads-zeidgeistdotcom
+    location: US-CENTRAL1
+    storageClass: STANDARD
+    
+    # Security-focused configuration
+    publicAccessPrevention: enforced
+    uniformBucketLevelAccess: true
+    
+    # Virus scanning and content validation
+    lifecycle:
+      - action: Delete
+        condition:
+          age: 30
+          matchesPrefix: temp/  # Delete temporary uploads after 30 days
+    
+    # Restricted access
+    iamBindings:
+      - role: roles/storage.objectAdmin
+        members:
+          - serviceAccount:cbl-maikosh-service@zeidgeistdotcom.iam.gserviceaccount.com
+
+---
+# Storage deployment script configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: storage-deployment-script
+data:
+  deploy-storage.sh: |
+    #!/bin/bash
+    set -e
+    
+    PROJECT_ID=${PROJECT_ID:-zeidgeistdotcom}
+    ENVIRONMENT=${ENVIRONMENT:-prod}
+    
+    echo "🏀 Deploying CBL-MAIKOSH Storage Infrastructure..."
+    
+    # Create production storage bucket
+    gsutil mb -p $PROJECT_ID -c STANDARD -l US-CENTRAL1 gs://cbl-maikosh-$ENVIRONMENT-storage-$PROJECT_ID || echo "Bucket already exists"
+    
+    # Enable versioning
+    gsutil versioning set on gs://cbl-maikosh-$ENVIRONMENT-storage-$PROJECT_ID
+    
+    # Set lifecycle policy
+    cat > lifecycle.json << EOF
+    {
+      "lifecycle": {
+        "rule": [
+          {
+            "action": {"type": "SetStorageClass", "storageClass": "NEARLINE"},
+            "condition": {"age": 30}
+          },
+          {
+            "action": {"type": "SetStorageClass", "storageClass": "COLDLINE"},
+            "condition": {"age": 90}
+          },
+          {
+            "action": {"type": "Delete"},
+            "condition": {"age": 365}
+          }
+        ]
+      }
+    }
+    EOF
+    
+    gsutil lifecycle set lifecycle.json gs://cbl-maikosh-$ENVIRONMENT-storage-$PROJECT_ID
+    
+    # Set CORS policy
+    cat > cors.json << EOF
+    [
+      {
+        "origin": [
+          "https://cbl-maikosh-app-$ENVIRONMENT-$PROJECT_ID.a.run.app"
+        ],
+        "method": ["GET", "PUT", "POST", "HEAD"],
+        "responseHeader": ["Content-Type", "x-goog-resumable"],
+        "maxAgeSeconds": 3600
+      }
+    ]
+    EOF
+    
+    gsutil cors set cors.json gs://cbl-maikosh-$ENVIRONMENT-storage-$PROJECT_ID
+    
+    # Set IAM policies
+    gsutil iam ch allUsers:objectViewer gs://cbl-maikosh-$ENVIRONMENT-storage-$PROJECT_ID
+    gsutil iam ch serviceAccount:cbl-maikosh-service@$PROJECT_ID.iam.gserviceaccount.com:objectAdmin gs://cbl-maikosh-$ENVIRONMENT-storage-$PROJECT_ID
+    
+    # Create CDN assets bucket
+    gsutil mb -p $PROJECT_ID -c STANDARD -l US gs://cbl-maikosh-cdn-assets-$PROJECT_ID || echo "CDN bucket already exists"
+    gsutil iam ch allUsers:objectViewer gs://cbl-maikosh-cdn-assets-$PROJECT_ID
+    
+    # Create user uploads bucket with stricter security
+    gsutil mb -p $PROJECT_ID -c STANDARD -l US-CENTRAL1 gs://cbl-maikosh-user-uploads-$PROJECT_ID || echo "Uploads bucket already exists"
+    gsutil iam ch serviceAccount:cbl-maikosh-service@$PROJECT_ID.iam.gserviceaccount.com:objectAdmin gs://cbl-maikosh-user-uploads-$PROJECT_ID
+    
+    # Set bucket-specific configurations
+    gsutil ubla set on gs://cbl-maikosh-user-uploads-$PROJECT_ID
+    gsutil pap set enforced gs://cbl-maikosh-user-uploads-$PROJECT_ID
+    
+    echo "✅ Storage infrastructure deployed successfully!"
+    echo "📦 Production bucket: gs://cbl-maikosh-$ENVIRONMENT-storage-$PROJECT_ID"
+    echo "🚀 CDN bucket: gs://cbl-maikosh-cdn-assets-$PROJECT_ID"
+    echo "🔒 Uploads bucket: gs://cbl-maikosh-user-uploads-$PROJECT_ID"
+    
+    # Cleanup
+    rm -f lifecycle.json cors.json

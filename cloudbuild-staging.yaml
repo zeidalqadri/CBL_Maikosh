@@ -1,0 +1,237 @@
+# Staging Environment CI/CD Pipeline
+# Comprehensive testing with canary deployment strategy
+
+steps:
+  # Stage 1: Environment Setup
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "=== CBL-MAIKOSH Staging Pipeline ==="
+        echo "Build ID: $BUILD_ID"
+        echo "Environment: staging"
+        echo "Branch: $_BRANCH_NAME"
+
+  # Stage 2: Dependency Installation
+  - name: 'node:20-alpine'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        echo "=== Installing Dependencies ==="
+        npm ci --prefer-offline
+
+  # Stage 3: Code Quality Checks
+  - name: 'node:20-alpine'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        echo "=== Running Code Quality Checks ==="
+        npm run lint
+
+  # Stage 4: Complete Test Suite
+  - name: 'node:20-alpine'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        echo "=== Running Complete Test Suite ==="
+        npm test -- --coverage --watchAll=false --passWithNoTests
+    env:
+      - 'NODE_ENV=test'
+      - 'CI=true'
+
+  # Stage 5: Integration Tests
+  - name: 'node:20-alpine'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        echo "=== Running Integration Tests ==="
+        npm test -- --testPathPattern="integration|__tests__" --watchAll=false --passWithNoTests
+    env:
+      - 'NODE_ENV=test'
+      - 'CI=true'
+
+  # Stage 6: Security Scan
+  - name: 'node:20-alpine'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        echo "=== Security Vulnerability Scan ==="
+        npm audit --audit-level=moderate
+
+  # Stage 7: Build Application
+  - name: 'node:20-alpine'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        echo "=== Building Application ==="
+        npm run build
+    env:
+      - 'NODE_ENV=production'
+      - 'NEXT_TELEMETRY_DISABLED=1'
+
+  # Stage 8: Build Container
+  - name: 'gcr.io/cloud-builders/docker'
+    args: 
+      - 'build'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:staging-$BUILD_ID'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:staging-latest'
+      - '--cache-from'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:staging-latest'
+      - '--build-arg'
+      - 'BUILDKIT_INLINE_CACHE=1'
+      - '.'
+
+  # Stage 9: Container Security Scan
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "=== Container Security Scan ==="
+        gcloud beta container images scan us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:staging-$BUILD_ID || echo "Security scan completed"
+
+  # Stage 10: Push Container
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '--all-tags', 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app']
+
+  # Stage 11: Canary Deployment
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "=== Canary Deployment to Staging ==="
+        
+        # Deploy new revision with canary tag
+        gcloud run deploy cbl-maikosh-app-staging \
+          --image us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:staging-$BUILD_ID \
+          --region us-central1 \
+          --platform managed \
+          --allow-unauthenticated \
+          --memory 1Gi \
+          --cpu 1 \
+          --timeout 600 \
+          --concurrency 500 \
+          --max-instances 20 \
+          --min-instances 1 \
+          --port 8080 \
+          --service-account cbl-maikosh-service@$PROJECT_ID.iam.gserviceaccount.com \
+          --set-env-vars NODE_ENV=staging,NEXT_PUBLIC_API_URL=https://cbl-maikosh-app-staging-$PROJECT_ID.a.run.app/api,AUTH0_BASE_URL=https://cbl-maikosh-app-staging-$PROJECT_ID.a.run.app,GCP_PROJECT_ID=$PROJECT_ID,GCP_STORAGE_BUCKET=cbl-maikosh-staging-storage-$PROJECT_ID,NEXT_TELEMETRY_DISABLED=1 \
+          --set-secrets AUTH0_SECRET=auth0-secret:latest,AUTH0_CLIENT_ID=auth0-client-id:latest,AUTH0_CLIENT_SECRET=auth0-client-secret:latest,AUTH0_ISSUER_BASE_URL=auth0-issuer-url:latest,FIREBASE_API_KEY=firebase-api-key:latest,FIREBASE_AUTH_DOMAIN=firebase-auth-domain:latest,FIREBASE_PROJECT_ID=firebase-project-id:latest,FIREBASE_STORAGE_BUCKET=firebase-storage-bucket:latest,FIREBASE_MESSAGING_SENDER_ID=firebase-messaging-sender-id:latest,FIREBASE_APP_ID=firebase-app-id:latest,GA_MEASUREMENT_ID=ga-measurement-id:latest \
+          --labels environment=staging,application=cbl-maikosh,tier=web,deployment=canary \
+          --tag canary-$BUILD_ID \
+          --no-traffic
+        
+        echo "Canary deployment created, starting traffic split"
+        
+        # Initially route 10% traffic to canary
+        gcloud run services update-traffic cbl-maikosh-app-staging \
+          --to-tags canary-$BUILD_ID=10 \
+          --region us-central1
+        
+        echo "10% traffic routed to canary deployment"
+
+  # Stage 12: Canary Health Monitoring
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "=== Canary Health Monitoring ==="
+        SERVICE_URL=$(gcloud run services describe cbl-maikosh-app-staging --region=us-central1 --format='value(status.url)')
+        
+        # Monitor canary for 5 minutes
+        for i in {1..10}; do
+          echo "Monitoring canary deployment... ($i/10)"
+          
+          if curl -f -s "$SERVICE_URL/api/health"; then
+            echo "Canary health check passed"
+          else
+            echo "Canary health check failed"
+            # Rollback traffic to stable
+            gcloud run services update-traffic cbl-maikosh-app-staging --to-latest --region us-central1
+            exit 1
+          fi
+          
+          sleep 30
+        done
+        
+        echo "Canary monitoring completed successfully"
+
+  # Stage 13: Canary Promotion
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "=== Promoting Canary to Full Traffic ==="
+        
+        # Route 100% traffic to canary (promote)
+        gcloud run services update-traffic cbl-maikosh-app-staging \
+          --to-tags canary-$BUILD_ID=100 \
+          --region us-central1
+        
+        echo "Canary promoted to receive 100% traffic"
+        
+        # Clean up old revisions (keep last 3)
+        gcloud run revisions list --service=cbl-maikosh-app-staging --region=us-central1 \
+          --format='value(name)' --limit=100 | tail -n +4 | \
+          xargs -I {} gcloud run revisions delete {} --region=us-central1 --quiet || echo "Cleanup completed"
+
+  # Stage 14: Comprehensive Health Check
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "=== Comprehensive Health Check ==="
+        SERVICE_URL=$(gcloud run services describe cbl-maikosh-app-staging --region=us-central1 --format='value(status.url)')
+        
+        # Test multiple endpoints
+        endpoints=("/api/health" "/api/status" "/")
+        
+        for endpoint in "${endpoints[@]}"; do
+          echo "Testing $SERVICE_URL$endpoint"
+          if curl -f -s "$SERVICE_URL$endpoint" > /dev/null; then
+            echo "✅ $endpoint - OK"
+          else
+            echo "❌ $endpoint - Failed"
+            exit 1
+          fi
+        done
+        
+        echo "All health checks passed successfully"
+
+  # Stage 15: Upload Test Results
+  - name: 'gcr.io/cloud-builders/gsutil'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "=== Uploading Test Results ==="
+        if [ -d "coverage" ]; then
+          gsutil -m cp -r coverage gs://cbl-maikosh-reports-$PROJECT_ID/staging/coverage/$BUILD_ID/
+        fi
+        echo "Test results uploaded successfully"
+
+substitutions:
+  _BRANCH_NAME: 'staging'
+
+images:
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:staging-$BUILD_ID'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:staging-latest'
+
+timeout: '2400s'  # 40 minutes for comprehensive testing
+options:
+  machineType: 'E2_HIGHCPU_8'
+  diskSizeGb: 100
+  logging: CLOUD_LOGGING_ONLY

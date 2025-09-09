@@ -1,0 +1,63 @@
+steps:
+  # Build the container image with caching
+  - name: 'gcr.io/cloud-builders/docker'
+    args: 
+      - 'build'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:$BUILD_ID'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:latest'
+      - '--cache-from'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:latest'
+      - '.'
+  
+  # Push the container image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '--all-tags', 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app']
+  
+  # Deploy container image to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'cbl-maikosh-app'
+      - '--image'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:$BUILD_ID'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--memory'
+      - '2Gi'
+      - '--cpu'
+      - '2'
+      - '--timeout'
+      - '900'
+      - '--concurrency'
+      - '1000'
+      - '--max-instances'
+      - '100'
+      - '--min-instances'
+      - '0'
+      - '--port'
+      - '8080'
+      - '--service-account'
+      - 'cbl-maikosh-service@$PROJECT_ID.iam.gserviceaccount.com'
+      - '--set-env-vars'
+      - 'NODE_ENV=production,GCP_PROJECT_ID=$PROJECT_ID,NEXT_TELEMETRY_DISABLED=1'
+      - '--labels'
+      - 'environment=prod,application=cbl-maikosh,tier=web'
+
+# Images to be pushed
+images:
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:$BUILD_ID'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:latest'
+
+# Build configuration
+timeout: '1200s'  # 20 minutes
+options:
+  machineType: 'E2_HIGHCPU_8'
+  diskSizeGb: 100
+  logging: CLOUD_LOGGING_ONLY

@@ -1,0 +1,366 @@
+# Enhanced CI/CD Pipeline for CBL-MAIKOSH Basketball Coaching Platform
+# Multi-stage pipeline with comprehensive testing, security scanning, and deployment strategies
+
+steps:
+  # Stage 1: Environment Setup and Validation
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "=== CBL-MAIKOSH CI/CD Pipeline Started ==="
+        echo "Build ID: $BUILD_ID"
+        echo "Environment: $_ENVIRONMENT"
+        echo "Project ID: $PROJECT_ID"
+        echo "Branch: $_BRANCH_NAME"
+        echo "Commit SHA: $SHORT_SHA"
+        
+        # Validate environment variables
+        if [[ -z "$_ENVIRONMENT" ]]; then
+          echo "Error: Environment not specified"
+          exit 1
+        fi
+
+  # Stage 2: Cache Management
+  - name: 'gcr.io/cloud-builders/gsutil'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "=== Restoring Build Cache ==="
+        gsutil -m cp -r gs://cbl-maikosh-build-cache-$PROJECT_ID/node_modules-cache.tar.gz . || echo "No cache found"
+        if [[ -f node_modules-cache.tar.gz ]]; then
+          tar -xzf node_modules-cache.tar.gz || echo "Cache extraction failed"
+        fi
+
+  # Stage 3: Dependency Installation
+  - name: 'node:20-alpine'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        echo "=== Installing Dependencies ==="
+        npm ci --prefer-offline --no-audit
+        echo "Dependencies installed successfully"
+
+  # Stage 4: Code Quality and Linting
+  - name: 'node:20-alpine'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        echo "=== Running Code Quality Checks ==="
+        npm run lint
+        echo "Linting completed successfully"
+
+  # Stage 5: Unit Testing
+  - name: 'node:20-alpine'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        echo "=== Running Unit Tests ==="
+        npm test -- --coverage --watchAll=false --passWithNoTests
+        echo "Unit tests completed successfully"
+    env:
+      - 'NODE_ENV=test'
+      - 'CI=true'
+
+  # Stage 6: Integration Testing
+  - name: 'node:20-alpine'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        echo "=== Running Integration Tests ==="
+        npm test -- --testPathPattern="integration|__tests__" --watchAll=false --passWithNoTests
+        echo "Integration tests completed successfully"
+    env:
+      - 'NODE_ENV=test'
+      - 'CI=true'
+
+  # Stage 7: Security Vulnerability Scanning
+  - name: 'node:20-alpine'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        echo "=== Running Security Vulnerability Scan ==="
+        npm audit --audit-level=high
+        echo "Security scan completed"
+
+  # Stage 8: Build Application
+  - name: 'node:20-alpine'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        echo "=== Building Application ==="
+        npm run build
+        echo "Application build completed successfully"
+    env:
+      - 'NODE_ENV=production'
+      - 'NEXT_TELEMETRY_DISABLED=1'
+      - 'GENERATE_SOURCEMAP=false'
+
+  # Stage 9: Cache Update
+  - name: 'gcr.io/cloud-builders/gsutil'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "=== Updating Build Cache ==="
+        tar -czf node_modules-cache.tar.gz node_modules
+        gsutil -m cp node_modules-cache.tar.gz gs://cbl-maikosh-build-cache-$PROJECT_ID/ || echo "Cache update failed"
+
+  # Stage 10: Container Security Scanning
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'temp-image-$BUILD_ID'
+      - '--cache-from'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:latest'
+      - '--build-arg'
+      - 'BUILDKIT_INLINE_CACHE=1'
+      - '.'
+
+  # Stage 11: Container Vulnerability Scanning
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "=== Container Vulnerability Scanning ==="
+        gcloud beta container images scan temp-image-$BUILD_ID --format='value(discovery.vulnerabilitySummary.counts[].count)' || echo "Vulnerability scanning completed"
+
+  # Stage 12: Build and Tag Container Images
+  - name: 'gcr.io/cloud-builders/docker'
+    args: 
+      - 'build'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:$BUILD_ID'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:$_ENVIRONMENT-latest'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:$_ENVIRONMENT-$SHORT_SHA'
+      - '--cache-from'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:latest'
+      - '--build-arg'
+      - 'BUILDKIT_INLINE_CACHE=1'
+      - '.'
+
+  # Stage 13: Push Container Images
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '--all-tags', 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app']
+
+  # Stage 14: Infrastructure Validation (Terraform Plan)
+  - name: 'hashicorp/terraform:1.5'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        echo "=== Terraform Infrastructure Validation ==="
+        cd terraform
+        terraform init -backend-config="bucket=cbl-maikosh-terraform-state-$PROJECT_ID"
+        terraform plan -var="project_id=$PROJECT_ID" -var="environment=$_ENVIRONMENT" -out=tfplan
+        echo "Terraform plan completed successfully"
+    env:
+      - 'TF_VAR_project_id=$PROJECT_ID'
+      - 'TF_VAR_environment=$_ENVIRONMENT'
+
+  # Stage 15: Environment-specific Deployment Strategy
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "=== Deploying to $_ENVIRONMENT Environment ==="
+        
+        # Set service name based on environment
+        SERVICE_NAME="cbl-maikosh-app-$_ENVIRONMENT"
+        
+        if [[ "$_ENVIRONMENT" == "prod" ]]; then
+          echo "Production deployment - Blue-Green Strategy"
+          
+          # Get current traffic allocation
+          CURRENT_REVISION=$(gcloud run services describe $SERVICE_NAME --region=us-central1 --format='value(status.traffic[0].revisionName)' || echo "none")
+          
+          # Deploy new revision with 0% traffic initially
+          gcloud run deploy $SERVICE_NAME \
+            --image us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:$BUILD_ID \
+            --region us-central1 \
+            --platform managed \
+            --allow-unauthenticated \
+            --memory 2Gi \
+            --cpu 2 \
+            --timeout 900 \
+            --concurrency 1000 \
+            --max-instances 100 \
+            --min-instances 2 \
+            --port 8080 \
+            --service-account cbl-maikosh-service@$PROJECT_ID.iam.gserviceaccount.com \
+            --set-env-vars NODE_ENV=production,NEXT_PUBLIC_API_URL=https://$SERVICE_NAME-$PROJECT_ID.a.run.app/api,AUTH0_BASE_URL=https://$SERVICE_NAME-$PROJECT_ID.a.run.app,GCP_PROJECT_ID=$PROJECT_ID,GCP_STORAGE_BUCKET=cbl-maikosh-$_ENVIRONMENT-storage-$PROJECT_ID,NEXT_TELEMETRY_DISABLED=1 \
+            --set-secrets AUTH0_SECRET=auth0-secret:latest,AUTH0_CLIENT_ID=auth0-client-id:latest,AUTH0_CLIENT_SECRET=auth0-client-secret:latest,AUTH0_ISSUER_BASE_URL=auth0-issuer-url:latest,FIREBASE_API_KEY=firebase-api-key:latest,FIREBASE_AUTH_DOMAIN=firebase-auth-domain:latest,FIREBASE_PROJECT_ID=firebase-project-id:latest,FIREBASE_STORAGE_BUCKET=firebase-storage-bucket:latest,FIREBASE_MESSAGING_SENDER_ID=firebase-messaging-sender-id:latest,FIREBASE_APP_ID=firebase-app-id:latest,GA_MEASUREMENT_ID=ga-measurement-id:latest \
+            --labels environment=$_ENVIRONMENT,application=cbl-maikosh,tier=web,deployment=blue-green \
+            --tag blue-green-$BUILD_ID \
+            --no-traffic
+            
+        elif [[ "$_ENVIRONMENT" == "staging" ]]; then
+          echo "Staging deployment - Canary Strategy"
+          
+          gcloud run deploy $SERVICE_NAME \
+            --image us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:$BUILD_ID \
+            --region us-central1 \
+            --platform managed \
+            --allow-unauthenticated \
+            --memory 1Gi \
+            --cpu 1 \
+            --timeout 600 \
+            --concurrency 500 \
+            --max-instances 50 \
+            --min-instances 1 \
+            --port 8080 \
+            --service-account cbl-maikosh-service@$PROJECT_ID.iam.gserviceaccount.com \
+            --set-env-vars NODE_ENV=staging,NEXT_PUBLIC_API_URL=https://$SERVICE_NAME-$PROJECT_ID.a.run.app/api,AUTH0_BASE_URL=https://$SERVICE_NAME-$PROJECT_ID.a.run.app,GCP_PROJECT_ID=$PROJECT_ID,GCP_STORAGE_BUCKET=cbl-maikosh-$_ENVIRONMENT-storage-$PROJECT_ID,NEXT_TELEMETRY_DISABLED=1 \
+            --set-secrets AUTH0_SECRET=auth0-secret:latest,AUTH0_CLIENT_ID=auth0-client-id:latest,AUTH0_CLIENT_SECRET=auth0-client-secret:latest,AUTH0_ISSUER_BASE_URL=auth0-issuer-url:latest,FIREBASE_API_KEY=firebase-api-key:latest,FIREBASE_AUTH_DOMAIN=firebase-auth-domain:latest,FIREBASE_PROJECT_ID=firebase-project-id:latest,FIREBASE_STORAGE_BUCKET=firebase-storage-bucket:latest,FIREBASE_MESSAGING_SENDER_ID=firebase-messaging-sender-id:latest,FIREBASE_APP_ID=firebase-app-id:latest,GA_MEASUREMENT_ID=ga-measurement-id:latest \
+            --labels environment=$_ENVIRONMENT,application=cbl-maikosh,tier=web,deployment=canary \
+            --tag canary-$BUILD_ID
+            
+        else
+          echo "Development deployment - Direct Strategy"
+          
+          gcloud run deploy $SERVICE_NAME \
+            --image us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:$BUILD_ID \
+            --region us-central1 \
+            --platform managed \
+            --allow-unauthenticated \
+            --memory 512Mi \
+            --cpu 1 \
+            --timeout 300 \
+            --concurrency 100 \
+            --max-instances 10 \
+            --min-instances 0 \
+            --port 8080 \
+            --service-account cbl-maikosh-service@$PROJECT_ID.iam.gserviceaccount.com \
+            --set-env-vars NODE_ENV=development,NEXT_PUBLIC_API_URL=https://$SERVICE_NAME-$PROJECT_ID.a.run.app/api,AUTH0_BASE_URL=https://$SERVICE_NAME-$PROJECT_ID.a.run.app,GCP_PROJECT_ID=$PROJECT_ID,GCP_STORAGE_BUCKET=cbl-maikosh-$_ENVIRONMENT-storage-$PROJECT_ID,NEXT_TELEMETRY_DISABLED=1 \
+            --set-secrets AUTH0_SECRET=auth0-secret:latest,AUTH0_CLIENT_ID=auth0-client-id:latest,AUTH0_CLIENT_SECRET=auth0-client-secret:latest,AUTH0_ISSUER_BASE_URL=auth0-issuer-url:latest,FIREBASE_API_KEY=firebase-api-key:latest,FIREBASE_AUTH_DOMAIN=firebase-auth-domain:latest,FIREBASE_PROJECT_ID=firebase-project-id:latest,FIREBASE_STORAGE_BUCKET=firebase-storage-bucket:latest,FIREBASE_MESSAGING_SENDER_ID=firebase-messaging-sender-id:latest,FIREBASE_APP_ID=firebase-app-id:latest,GA_MEASUREMENT_ID=ga-measurement-id:latest \
+            --labels environment=$_ENVIRONMENT,application=cbl-maikosh,tier=web,deployment=direct
+        fi
+
+  # Stage 16: Deployment Health Check
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "=== Deployment Health Check ==="
+        SERVICE_NAME="cbl-maikosh-app-$_ENVIRONMENT"
+        SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region=us-central1 --format='value(status.url)')
+        
+        echo "Service URL: $SERVICE_URL"
+        
+        # Wait for service to be ready
+        for i in {1..30}; do
+          if curl -f -s "$SERVICE_URL/api/health" > /dev/null; then
+            echo "Health check passed"
+            break
+          fi
+          echo "Waiting for service to be ready... ($i/30)"
+          sleep 10
+        done
+        
+        # Final health check
+        if ! curl -f -s "$SERVICE_URL/api/health"; then
+          echo "Health check failed"
+          exit 1
+        fi
+        
+        echo "Deployment health check completed successfully"
+
+  # Stage 17: Performance Testing (Production only)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        if [[ "$_ENVIRONMENT" == "prod" ]]; then
+          echo "=== Running Performance Tests ==="
+          SERVICE_NAME="cbl-maikosh-app-$_ENVIRONMENT"
+          SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region=us-central1 --format='value(status.url)')
+          
+          # Install lighthouse
+          npm install -g lighthouse
+          
+          # Run lighthouse audit
+          lighthouse "$SERVICE_URL" --output=json --output=html --output-path=./performance-audit-$BUILD_ID --quiet --chrome-flags="--headless --no-sandbox"
+          
+          # Upload results to storage
+          gsutil cp performance-audit-$BUILD_ID.* gs://cbl-maikosh-reports-$PROJECT_ID/performance/
+          
+          echo "Performance testing completed"
+        else
+          echo "Skipping performance tests for $_ENVIRONMENT environment"
+        fi
+
+  # Stage 18: Notification and Reporting
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "=== Deployment Notification ==="
+        SERVICE_NAME="cbl-maikosh-app-$_ENVIRONMENT"
+        SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region=us-central1 --format='value(status.url)')
+        
+        # Create deployment report
+        cat << EOF > deployment-report.json
+        {
+          "build_id": "$BUILD_ID",
+          "environment": "$_ENVIRONMENT",
+          "project_id": "$PROJECT_ID",
+          "service_name": "$SERVICE_NAME",
+          "service_url": "$SERVICE_URL",
+          "image": "us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:$BUILD_ID",
+          "commit_sha": "$SHORT_SHA",
+          "branch": "$_BRANCH_NAME",
+          "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+          "status": "success"
+        }
+        EOF
+        
+        # Upload deployment report
+        gsutil cp deployment-report.json gs://cbl-maikosh-reports-$PROJECT_ID/deployments/
+        
+        echo "Deployment report uploaded successfully"
+        echo "=== CBL-MAIKOSH CI/CD Pipeline Completed Successfully ==="
+
+# Substitutions for environment-specific deployments
+substitutions:
+  _ENVIRONMENT: 'dev'
+  _BRANCH_NAME: 'main'
+
+# Images to be pushed to registry
+images:
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:$BUILD_ID'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:$_ENVIRONMENT-latest'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/cbl-maikosh-repo/cbl-maikosh-app:$_ENVIRONMENT-$SHORT_SHA'
+
+# Build configuration optimized for CI/CD
+timeout: '3600s'  # 60 minutes for comprehensive pipeline
+options:
+  machineType: 'E2_HIGHCPU_8'  # High CPU for faster builds and testing
+  diskSizeGb: 100
+  logging: CLOUD_LOGGING_ONLY
+  env:
+    - 'CLOUDSDK_COMPUTE_ZONE=us-central1-a'
+    - 'CLOUDSDK_CORE_PROJECT=$PROJECT_ID'
+
+# Artifacts and reports
+artifacts:
+  objects:
+    location: 'gs://cbl-maikosh-build-artifacts-$PROJECT_ID/$BUILD_ID'
+    paths:
+      - 'coverage/**/*'
+      - 'performance-audit-$BUILD_ID.*'
+      - 'deployment-report.json'

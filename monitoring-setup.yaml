@@ -1,0 +1,566 @@
+# Comprehensive Monitoring and Logging Setup for CBL-MAIKOSH Basketball Coaching Platform
+# Includes observability, alerting, and performance monitoring
+
+# Notification Channel Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: monitoring-notification-channels
+data:
+  email-channel.yaml: |
+    displayName: "CBL-MAIKOSH Critical Alerts"
+    type: "email"
+    labels:
+      email_address: "zeidalqadri@gmail.com"
+    enabled: true
+    
+  slack-channel.yaml: |
+    displayName: "CBL-MAIKOSH Slack Notifications"
+    type: "slack"
+    labels:
+      channel_name: "#cbl-maikosh-alerts"
+    enabled: false  # Enable when Slack webhook is configured
+
+---
+# Uptime Monitoring Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: uptime-monitoring
+data:
+  setup-uptime-checks.sh: |
+    #!/bin/bash
+    set -e
+    
+    PROJECT_ID=${PROJECT_ID:-zeidgeistdotcom}
+    SERVICE_NAME=${SERVICE_NAME:-cbl-maikosh-app}
+    REGION=${REGION:-us-central1}
+    
+    echo "🏀 Setting up uptime monitoring for CBL-MAIKOSH..."
+    
+    # Get the Cloud Run service URL
+    SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region=$REGION --format="value(status.url)" --project=$PROJECT_ID)
+    SERVICE_HOST=$(echo $SERVICE_URL | sed 's|https://||' | sed 's|http://||')
+    
+    # Create health endpoint uptime check
+    cat > health-uptime-check.yaml << EOF
+    displayName: "CBL-MAIKOSH Health Check"
+    httpCheck:
+      path: "/api/health"
+      port: 443
+      useSsl: true
+      headers:
+        User-Agent: "Google-Uptime-Check"
+    monitoredResource:
+      type: "uptime_url"
+      labels:
+        project_id: "$PROJECT_ID"
+        host: "$SERVICE_HOST"
+    timeout: "15s"
+    period: "300s"
+    selectedRegions:
+      - "USA"
+      - "EUROPE" 
+      - "ASIA_PACIFIC"
+    EOF
+    
+    # Create main page uptime check
+    cat > main-page-uptime-check.yaml << EOF
+    displayName: "CBL-MAIKOSH Main Page"
+    httpCheck:
+      path: "/"
+      port: 443
+      useSsl: true
+      validateSsl: true
+      headers:
+        User-Agent: "Google-Uptime-Check"
+    monitoredResource:
+      type: "uptime_url"
+      labels:
+        project_id: "$PROJECT_ID"
+        host: "$SERVICE_HOST"
+    timeout: "20s"
+    period: "300s"
+    selectedRegions:
+      - "USA"
+      - "EUROPE"
+    contentMatchers:
+      - content: "CBL-MAIKOSH"
+        matcher: "CONTAINS_STRING"
+    EOF
+    
+    # Create API endpoints uptime check
+    cat > api-uptime-check.yaml << EOF
+    displayName: "CBL-MAIKOSH API Endpoints"
+    httpCheck:
+      path: "/api/csrf-token"
+      port: 443
+      useSsl: true
+      headers:
+        User-Agent: "Google-Uptime-Check"
+    monitoredResource:
+      type: "uptime_url"
+      labels:
+        project_id: "$PROJECT_ID"
+        host: "$SERVICE_HOST"
+    timeout: "10s"
+    period: "600s"
+    selectedRegions:
+      - "USA"
+    EOF
+    
+    echo "Creating uptime checks..."
+    gcloud monitoring uptime create --uptime-check-config-from-file=health-uptime-check.yaml --project=$PROJECT_ID || echo "Health check already exists"
+    gcloud monitoring uptime create --uptime-check-config-from-file=main-page-uptime-check.yaml --project=$PROJECT_ID || echo "Main page check already exists"
+    gcloud monitoring uptime create --uptime-check-config-from-file=api-uptime-check.yaml --project=$PROJECT_ID || echo "API check already exists"
+    
+    echo "✅ Uptime monitoring configured successfully!"
+    echo "📊 View checks: https://console.cloud.google.com/monitoring/uptime"
+    
+    # Cleanup
+    rm -f health-uptime-check.yaml main-page-uptime-check.yaml api-uptime-check.yaml
+
+---
+# Alert Policy Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alert-policies
+data:
+  create-alert-policies.sh: |
+    #!/bin/bash
+    set -e
+    
+    PROJECT_ID=${PROJECT_ID:-zeidgeistdotcom}
+    NOTIFICATION_EMAIL=${NOTIFICATION_EMAIL:-zeidalqadri@gmail.com}
+    
+    echo "🏀 Creating alert policies for CBL-MAIKOSH..."
+    
+    # Create notification channel first
+    cat > notification-channel.yaml << EOF
+    displayName: "CBL-MAIKOSH Alerts"
+    type: "email"
+    labels:
+      email_address: "$NOTIFICATION_EMAIL"
+    EOF
+    
+    CHANNEL_ID=$(gcloud alpha monitoring channels create --channel-content-from-file=notification-channel.yaml --format="value(name)" --project=$PROJECT_ID 2>/dev/null || echo "")
+    
+    # If creation failed, try to find existing channel
+    if [ -z "$CHANNEL_ID" ]; then
+      CHANNEL_ID=$(gcloud alpha monitoring channels list --filter="displayName:'CBL-MAIKOSH Alerts'" --format="value(name)" --project=$PROJECT_ID)
+    fi
+    
+    if [ -z "$CHANNEL_ID" ]; then
+      echo "❌ Failed to create or find notification channel"
+      exit 1
+    fi
+    
+    echo "Using notification channel: $CHANNEL_ID"
+    
+    # High Error Rate Alert
+    cat > high-error-rate-alert.yaml << EOF
+    displayName: "CBL-MAIKOSH High Error Rate"
+    documentation:
+      content: "The error rate for CBL-MAIKOSH has exceeded 5% for more than 5 minutes."
+      mimeType: "text/markdown"
+    conditions:
+    - displayName: "High 4xx/5xx error rate"
+      conditionThreshold:
+        filter: 'resource.type="cloud_run_revision" AND resource.labels.service_name="cbl-maikosh-app" AND metric.type="run.googleapis.com/request_count"'
+        comparison: COMPARISON_GREATER_THAN
+        thresholdValue: 0.05
+        duration: 300s
+        aggregations:
+        - alignmentPeriod: 60s
+          perSeriesAligner: ALIGN_RATE
+          crossSeriesReducer: REDUCE_SUM
+          groupByFields:
+          - "resource.label.service_name"
+        denominatorFilter: 'resource.type="cloud_run_revision" AND resource.labels.service_name="cbl-maikosh-app" AND metric.type="run.googleapis.com/request_count"'
+        denominatorAggregations:
+        - alignmentPeriod: 60s
+          perSeriesAligner: ALIGN_RATE
+          crossSeriesReducer: REDUCE_SUM
+          groupByFields:
+          - "resource.label.service_name"
+    notificationChannels:
+    - $CHANNEL_ID
+    alertStrategy:
+      autoClose: 86400s
+    EOF
+    
+    # High Latency Alert
+    cat > high-latency-alert.yaml << EOF
+    displayName: "CBL-MAIKOSH High Latency"
+    documentation:
+      content: "The 95th percentile latency for CBL-MAIKOSH has exceeded 2 seconds for more than 3 minutes."
+      mimeType: "text/markdown"
+    conditions:
+    - displayName: "High request latency"
+      conditionThreshold:
+        filter: 'resource.type="cloud_run_revision" AND resource.labels.service_name="cbl-maikosh-app" AND metric.type="run.googleapis.com/request_latencies"'
+        comparison: COMPARISON_GREATER_THAN
+        thresholdValue: 2000
+        duration: 180s
+        aggregations:
+        - alignmentPeriod: 60s
+          perSeriesAligner: ALIGN_DELTA
+          crossSeriesReducer: REDUCE_PERCENTILE_95
+          groupByFields:
+          - "resource.label.service_name"
+    notificationChannels:
+    - $CHANNEL_ID
+    alertStrategy:
+      autoClose: 3600s
+    EOF
+    
+    # Memory Usage Alert
+    cat > high-memory-alert.yaml << EOF
+    displayName: "CBL-MAIKOSH High Memory Usage"
+    documentation:
+      content: "Memory utilization for CBL-MAIKOSH has exceeded 80% for more than 5 minutes."
+      mimeType: "text/markdown"
+    conditions:
+    - displayName: "High memory utilization"
+      conditionThreshold:
+        filter: 'resource.type="cloud_run_revision" AND resource.labels.service_name="cbl-maikosh-app" AND metric.type="run.googleapis.com/container/memory/utilizations"'
+        comparison: COMPARISON_GREATER_THAN
+        thresholdValue: 0.8
+        duration: 300s
+        aggregations:
+        - alignmentPeriod: 60s
+          perSeriesAligner: ALIGN_MEAN
+          crossSeriesReducer: REDUCE_MAX
+          groupByFields:
+          - "resource.label.service_name"
+    notificationChannels:
+    - $CHANNEL_ID
+    alertStrategy:
+      autoClose: 3600s
+    EOF
+    
+    # Service Down Alert
+    cat > service-down-alert.yaml << EOF
+    displayName: "CBL-MAIKOSH Service Down"
+    documentation:
+      content: "CBL-MAIKOSH service is not responding to health checks."
+      mimeType: "text/markdown"
+    conditions:
+    - displayName: "Service availability check failed"
+      conditionAbsent:
+        filter: 'resource.type="cloud_run_revision" AND resource.labels.service_name="cbl-maikosh-app" AND metric.type="run.googleapis.com/request_count"'
+        duration: 300s
+        aggregations:
+        - alignmentPeriod: 60s
+          perSeriesAligner: ALIGN_RATE
+          crossSeriesReducer: REDUCE_SUM
+    notificationChannels:
+    - $CHANNEL_ID
+    alertStrategy:
+      autoClose: 600s
+    EOF
+    
+    # Security Alert
+    cat > security-alert.yaml << EOF
+    displayName: "CBL-MAIKOSH Security Events"
+    documentation:
+      content: "High number of blocked requests detected by Cloud Armor."
+      mimeType: "text/markdown"
+    conditions:
+    - displayName: "High rate of blocked requests"
+      conditionThreshold:
+        filter: 'resource.type="gce_backend_service" AND resource.labels.backend_service_name="cbl-maikosh-backend-service" AND metric.type="loadbalancing.googleapis.com/https/backend_request_count" AND metric.labels.response_code_class="400"'
+        comparison: COMPARISON_GREATER_THAN
+        thresholdValue: 50
+        duration: 300s
+        aggregations:
+        - alignmentPeriod: 60s
+          perSeriesAligner: ALIGN_RATE
+          crossSeriesReducer: REDUCE_SUM
+    notificationChannels:
+    - $CHANNEL_ID
+    alertStrategy:
+      autoClose: 3600s
+    EOF
+    
+    echo "Creating alert policies..."
+    gcloud alpha monitoring policies create --policy-from-file=high-error-rate-alert.yaml --project=$PROJECT_ID || echo "High error rate alert already exists"
+    gcloud alpha monitoring policies create --policy-from-file=high-latency-alert.yaml --project=$PROJECT_ID || echo "High latency alert already exists"  
+    gcloud alpha monitoring policies create --policy-from-file=high-memory-alert.yaml --project=$PROJECT_ID || echo "High memory alert already exists"
+    gcloud alpha monitoring policies create --policy-from-file=service-down-alert.yaml --project=$PROJECT_ID || echo "Service down alert already exists"
+    gcloud alpha monitoring policies create --policy-from-file=security-alert.yaml --project=$PROJECT_ID || echo "Security alert already exists"
+    
+    echo "✅ Alert policies created successfully!"
+    echo "🚨 View alerts: https://console.cloud.google.com/monitoring/alerting"
+    
+    # Cleanup
+    rm -f notification-channel.yaml high-error-rate-alert.yaml high-latency-alert.yaml high-memory-alert.yaml service-down-alert.yaml security-alert.yaml
+
+---
+# Custom Dashboard Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: monitoring-dashboard
+data:
+  dashboard.json: |
+    {
+      "displayName": "CBL-MAIKOSH Basketball Coaching Platform",
+      "mosaicLayout": {
+        "tiles": [
+          {
+            "width": 6,
+            "height": 4,
+            "widget": {
+              "title": "Request Count",
+              "xyChart": {
+                "dataSets": [
+                  {
+                    "timeSeriesQuery": {
+                      "timeSeriesFilter": {
+                        "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"cbl-maikosh-app\" AND metric.type=\"run.googleapis.com/request_count\"",
+                        "aggregation": {
+                          "alignmentPeriod": "60s",
+                          "perSeriesAligner": "ALIGN_RATE",
+                          "crossSeriesReducer": "REDUCE_SUM"
+                        }
+                      }
+                    },
+                    "targetAxis": "Y1"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "width": 6,
+            "height": 4,
+            "xPos": 6,
+            "widget": {
+              "title": "Request Latency (95th percentile)",
+              "xyChart": {
+                "dataSets": [
+                  {
+                    "timeSeriesQuery": {
+                      "timeSeriesFilter": {
+                        "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"cbl-maikosh-app\" AND metric.type=\"run.googleapis.com/request_latencies\"",
+                        "aggregation": {
+                          "alignmentPeriod": "60s",
+                          "perSeriesAligner": "ALIGN_DELTA",
+                          "crossSeriesReducer": "REDUCE_PERCENTILE_95"
+                        }
+                      }
+                    },
+                    "targetAxis": "Y1"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "width": 6,
+            "height": 4,
+            "yPos": 4,
+            "widget": {
+              "title": "Memory Utilization",
+              "xyChart": {
+                "dataSets": [
+                  {
+                    "timeSeriesQuery": {
+                      "timeSeriesFilter": {
+                        "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"cbl-maikosh-app\" AND metric.type=\"run.googleapis.com/container/memory/utilizations\"",
+                        "aggregation": {
+                          "alignmentPeriod": "60s",
+                          "perSeriesAligner": "ALIGN_MEAN",
+                          "crossSeriesReducer": "REDUCE_MAX"
+                        }
+                      }
+                    },
+                    "targetAxis": "Y1"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "width": 6,
+            "height": 4,
+            "yPos": 4,
+            "xPos": 6,
+            "widget": {
+              "title": "CPU Utilization",
+              "xyChart": {
+                "dataSets": [
+                  {
+                    "timeSeriesQuery": {
+                      "timeSeriesFilter": {
+                        "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"cbl-maikosh-app\" AND metric.type=\"run.googleapis.com/container/cpu/utilizations\"",
+                        "aggregation": {
+                          "alignmentPeriod": "60s",
+                          "perSeriesAligner": "ALIGN_MEAN",
+                          "crossSeriesReducer": "REDUCE_MAX"
+                        }
+                      }
+                    },
+                    "targetAxis": "Y1"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "width": 12,
+            "height": 4,
+            "yPos": 8,
+            "widget": {
+              "title": "Active Instances",
+              "xyChart": {
+                "dataSets": [
+                  {
+                    "timeSeriesQuery": {
+                      "timeSeriesFilter": {
+                        "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"cbl-maikosh-app\" AND metric.type=\"run.googleapis.com/container/instance_count\"",
+                        "aggregation": {
+                          "alignmentPeriod": "60s",
+                          "perSeriesAligner": "ALIGN_MEAN",
+                          "crossSeriesReducer": "REDUCE_SUM"
+                        }
+                      }
+                    },
+                    "targetAxis": "Y1"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "width": 12,
+            "height": 4,
+            "yPos": 12,
+            "widget": {
+              "title": "Error Logs",
+              "logsPanel": {
+                "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"cbl-maikosh-app\" AND severity>=ERROR",
+                "resourceNames": []
+              }
+            }
+          }
+        ]
+      }
+    }
+    
+  create-dashboard.sh: |
+    #!/bin/bash
+    set -e
+    
+    PROJECT_ID=${PROJECT_ID:-zeidgeistdotcom}
+    
+    echo "🏀 Creating monitoring dashboard for CBL-MAIKOSH..."
+    
+    gcloud monitoring dashboards create --config-from-file=dashboard.json --project=$PROJECT_ID || echo "Dashboard already exists"
+    
+    echo "✅ Dashboard created successfully!"
+    echo "📊 View dashboard: https://console.cloud.google.com/monitoring/dashboards"
+
+---
+# Log-based Metrics Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: log-based-metrics
+data:
+  create-log-metrics.sh: |
+    #!/bin/bash
+    set -e
+    
+    PROJECT_ID=${PROJECT_ID:-zeidgeistdotcom}
+    
+    echo "🏀 Creating log-based metrics for CBL-MAIKOSH..."
+    
+    # User authentication success metric
+    gcloud logging metrics create auth_success_rate \
+        --description="Rate of successful user authentications" \
+        --log-filter='resource.type="cloud_run_revision" AND resource.labels.service_name="cbl-maikosh-app" AND textPayload:"Authentication successful"' \
+        --project=$PROJECT_ID || echo "Auth success metric already exists"
+    
+    # User authentication failure metric
+    gcloud logging metrics create auth_failure_rate \
+        --description="Rate of failed user authentications" \
+        --log-filter='resource.type="cloud_run_revision" AND resource.labels.service_name="cbl-maikosh-app" AND textPayload:"Authentication failed"' \
+        --project=$PROJECT_ID || echo "Auth failure metric already exists"
+    
+    # Module completion metric
+    gcloud logging metrics create module_completions \
+        --description="Rate of module completions" \
+        --log-filter='resource.type="cloud_run_revision" AND resource.labels.service_name="cbl-maikosh-app" AND textPayload:"Module completed"' \
+        --project=$PROJECT_ID || echo "Module completion metric already exists"
+    
+    # Security events metric
+    gcloud logging metrics create security_events \
+        --description="Rate of security-related events" \
+        --log-filter='resource.type="cloud_run_revision" AND resource.labels.service_name="cbl-maikosh-app" AND (textPayload:"Security" OR textPayload:"Suspicious")' \
+        --project=$PROJECT_ID || echo "Security events metric already exists"
+    
+    echo "✅ Log-based metrics created successfully!"
+    echo "📊 View metrics: https://console.cloud.google.com/logs/metrics"
+
+---
+# Performance Monitoring Setup
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: performance-monitoring
+data:
+  setup-performance-monitoring.sh: |
+    #!/bin/bash
+    set -e
+    
+    PROJECT_ID=${PROJECT_ID:-zeidgeistdotcom}
+    
+    echo "🏀 Setting up performance monitoring for CBL-MAIKOSH..."
+    
+    # Enable Cloud Trace
+    gcloud services enable cloudtrace.googleapis.com --project=$PROJECT_ID
+    
+    # Enable Cloud Profiler
+    gcloud services enable cloudprofiler.googleapis.com --project=$PROJECT_ID
+    
+    # Create custom SLO for availability
+    cat > availability-slo.yaml << EOF
+    displayName: "CBL-MAIKOSH Availability SLO"
+    serviceLevelIndicator:
+      requestBased:
+        goodTotalRatio:
+          totalServiceFilter: 'resource.type="cloud_run_revision" AND resource.labels.service_name="cbl-maikosh-app"'
+          goodServiceFilter: 'resource.type="cloud_run_revision" AND resource.labels.service_name="cbl-maikosh-app" AND metric.labels.response_code!~"5.*"'
+    goal:
+      performanceGoal:
+        threshold: 0.999  # 99.9% availability
+    rollingPeriod: 2592000s  # 30 days
+    EOF
+    
+    # Create custom SLO for latency
+    cat > latency-slo.yaml << EOF
+    displayName: "CBL-MAIKOSH Latency SLO"
+    serviceLevelIndicator:
+      requestBased:
+        distributionCut:
+          distributionFilter: 'resource.type="cloud_run_revision" AND resource.labels.service_name="cbl-maikosh-app" AND metric.type="run.googleapis.com/request_latencies"'
+          range:
+            max: 2000  # 2 seconds
+    goal:
+      performanceGoal:
+        threshold: 0.95  # 95% of requests under 2s
+    rollingPeriod: 2592000s  # 30 days
+    EOF
+    
+    echo "Creating SLOs..."
+    gcloud monitoring slos create --slo-config-from-file=availability-slo.yaml --project=$PROJECT_ID || echo "Availability SLO already exists"
+    gcloud monitoring slos create --slo-config-from-file=latency-slo.yaml --project=$PROJECT_ID || echo "Latency SLO already exists"
+    
+    echo "✅ Performance monitoring configured successfully!"
+    echo "📈 View SLOs: https://console.cloud.google.com/monitoring/slo"
+    
+    # Cleanup
+    rm -f availability-slo.yaml latency-slo.yaml

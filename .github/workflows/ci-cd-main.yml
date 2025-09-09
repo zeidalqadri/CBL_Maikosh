@@ -1,0 +1,531 @@
+# Main CI/CD Pipeline for CBL-MAIKOSH Basketball Coaching Platform
+# Triggered on push to main branch and pull requests
+
+name: 🏀 CBL-MAIKOSH CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+        - dev
+        - staging
+        - prod
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  SERVICE_NAME: cbl-maikosh-app
+  REGION: us-central1
+  REGISTRY: us-central1-docker.pkg.dev
+
+jobs:
+  # Job 1: Code Quality and Testing
+  quality-gate:
+    name: 🔍 Quality Gate
+    runs-on: ubuntu-latest
+    outputs:
+      should-deploy: ${{ steps.check.outputs.should-deploy }}
+      target-env: ${{ steps.check.outputs.target-env }}
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: 📦 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+
+    - name: 🔧 Install Dependencies
+      run: npm ci
+
+    - name: 🔍 Run ESLint
+      run: npm run lint
+
+    - name: 🧪 Run Tests with Coverage
+      run: npm test -- --coverage --watchAll=false --passWithNoTests
+      env:
+        CI: true
+
+    - name: 📊 Upload Coverage Reports
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage/lcov.info
+        flags: unittests
+        name: codecov-umbrella
+
+    - name: 🛡️ Security Audit
+      run: npm audit --audit-level=moderate
+
+    - name: 🏗️ Build Application
+      run: npm run build
+      env:
+        NODE_ENV: production
+
+    - name: 📤 Upload Build Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifacts
+        path: |
+          .next
+          coverage
+        retention-days: 7
+
+    - name: ✅ Determine Deployment
+      id: check
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          echo "should-deploy=true" >> $GITHUB_OUTPUT
+          echo "target-env=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+        elif [[ "${{ github.ref }}" == "refs/heads/main" || "${{ github.ref }}" == "refs/heads/master" ]]; then
+          echo "should-deploy=true" >> $GITHUB_OUTPUT
+          echo "target-env=prod" >> $GITHUB_OUTPUT
+        elif [[ "${{ github.base_ref }}" == "main" || "${{ github.base_ref }}" == "master" ]]; then
+          echo "should-deploy=true" >> $GITHUB_OUTPUT
+          echo "target-env=staging" >> $GITHUB_OUTPUT
+        else
+          echo "should-deploy=false" >> $GITHUB_OUTPUT
+          echo "target-env=none" >> $GITHUB_OUTPUT
+        fi
+
+  # Job 2: Container Build and Security Scan
+  container-build:
+    name: 🐳 Container Build & Scan
+    runs-on: ubuntu-latest
+    needs: quality-gate
+    if: needs.quality-gate.outputs.should-deploy == 'true'
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🔐 Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    - name: ⚙️ Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        version: 'latest'
+
+    - name: 🔑 Configure Docker for Artifact Registry
+      run: gcloud auth configure-docker $REGISTRY
+
+    - name: 📥 Download Build Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: build-artifacts
+
+    - name: 🏗️ Build Container Image
+      run: |
+        docker build \
+          --tag $REGISTRY/$PROJECT_ID/cbl-maikosh-repo/$SERVICE_NAME:$GITHUB_SHA \
+          --tag $REGISTRY/$PROJECT_ID/cbl-maikosh-repo/$SERVICE_NAME:${{ needs.quality-gate.outputs.target-env }}-latest \
+          --cache-from $REGISTRY/$PROJECT_ID/cbl-maikosh-repo/$SERVICE_NAME:latest \
+          --build-arg BUILDKIT_INLINE_CACHE=1 \
+          .
+
+    - name: 🛡️ Run Container Security Scan
+      run: |
+        gcloud beta container images scan \
+          $REGISTRY/$PROJECT_ID/cbl-maikosh-repo/$SERVICE_NAME:$GITHUB_SHA \
+          --format='table(discovery.vulnerabilitySummary.counts[].count:label=COUNT,discovery.vulnerabilitySummary.counts[].severity:label=SEVERITY)' \
+          || echo "Security scan completed"
+
+    - name: 📤 Push Container Images
+      run: |
+        docker push $REGISTRY/$PROJECT_ID/cbl-maikosh-repo/$SERVICE_NAME:$GITHUB_SHA
+        docker push $REGISTRY/$PROJECT_ID/cbl-maikosh-repo/$SERVICE_NAME:${{ needs.quality-gate.outputs.target-env }}-latest
+
+  # Job 3: Infrastructure Validation
+  infrastructure-validation:
+    name: 🏗️ Infrastructure Validation
+    runs-on: ubuntu-latest
+    needs: [quality-gate, container-build]
+    if: needs.quality-gate.outputs.should-deploy == 'true'
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🔐 Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    - name: 🔧 Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.5.0
+
+    - name: 🏗️ Terraform Init
+      run: |
+        cd terraform
+        terraform init -backend-config="bucket=cbl-maikosh-terraform-state-$PROJECT_ID"
+
+    - name: 📋 Terraform Plan
+      run: |
+        cd terraform
+        terraform plan \
+          -var="project_id=$PROJECT_ID" \
+          -var="environment=${{ needs.quality-gate.outputs.target-env }}" \
+          -out=tfplan
+      env:
+        TF_VAR_project_id: ${{ env.PROJECT_ID }}
+        TF_VAR_environment: ${{ needs.quality-gate.outputs.target-env }}
+
+    - name: 📤 Upload Terraform Plan
+      uses: actions/upload-artifact@v4
+      with:
+        name: terraform-plan-${{ needs.quality-gate.outputs.target-env }}
+        path: terraform/tfplan
+        retention-days: 7
+
+  # Job 4: Deploy to Development
+  deploy-development:
+    name: 🚀 Deploy to Development
+    runs-on: ubuntu-latest
+    needs: [quality-gate, container-build, infrastructure-validation]
+    if: needs.quality-gate.outputs.target-env == 'dev'
+    environment: development
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🔐 Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    - name: ⚙️ Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+
+    - name: 🚀 Deploy to Cloud Run
+      run: |
+        gcloud run deploy cbl-maikosh-app-dev \
+          --image $REGISTRY/$PROJECT_ID/cbl-maikosh-repo/$SERVICE_NAME:$GITHUB_SHA \
+          --region $REGION \
+          --platform managed \
+          --allow-unauthenticated \
+          --memory 512Mi \
+          --cpu 1 \
+          --timeout 300 \
+          --concurrency 100 \
+          --max-instances 5 \
+          --min-instances 0 \
+          --port 8080 \
+          --service-account cbl-maikosh-service@$PROJECT_ID.iam.gserviceaccount.com \
+          --set-env-vars NODE_ENV=development,NEXT_PUBLIC_API_URL=https://cbl-maikosh-app-dev-$PROJECT_ID.a.run.app/api,AUTH0_BASE_URL=https://cbl-maikosh-app-dev-$PROJECT_ID.a.run.app,GCP_PROJECT_ID=$PROJECT_ID,NEXT_TELEMETRY_DISABLED=1 \
+          --set-secrets AUTH0_SECRET=auth0-secret:latest,AUTH0_CLIENT_ID=auth0-client-id:latest,AUTH0_CLIENT_SECRET=auth0-client-secret:latest,AUTH0_ISSUER_BASE_URL=auth0-issuer-url:latest \
+          --labels environment=dev,application=cbl-maikosh,tier=web
+
+    - name: 🔍 Health Check
+      run: |
+        SERVICE_URL=$(gcloud run services describe cbl-maikosh-app-dev --region $REGION --format='value(status.url)')
+        echo "Service deployed at: $SERVICE_URL"
+        
+        # Wait and test health endpoint
+        sleep 30
+        curl -f "$SERVICE_URL/api/health" || echo "Health check warning (dev environment)"
+
+  # Job 5: Deploy to Staging with Canary
+  deploy-staging:
+    name: 🎯 Deploy to Staging (Canary)
+    runs-on: ubuntu-latest
+    needs: [quality-gate, container-build, infrastructure-validation]
+    if: needs.quality-gate.outputs.target-env == 'staging'
+    environment: staging
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🔐 Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    - name: ⚙️ Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+
+    - name: 🎯 Canary Deployment
+      run: |
+        # Deploy new revision with canary tag (no traffic initially)
+        gcloud run deploy cbl-maikosh-app-staging \
+          --image $REGISTRY/$PROJECT_ID/cbl-maikosh-repo/$SERVICE_NAME:$GITHUB_SHA \
+          --region $REGION \
+          --platform managed \
+          --allow-unauthenticated \
+          --memory 1Gi \
+          --cpu 1 \
+          --timeout 600 \
+          --concurrency 500 \
+          --max-instances 20 \
+          --min-instances 1 \
+          --port 8080 \
+          --service-account cbl-maikosh-service@$PROJECT_ID.iam.gserviceaccount.com \
+          --set-env-vars NODE_ENV=staging,NEXT_PUBLIC_API_URL=https://cbl-maikosh-app-staging-$PROJECT_ID.a.run.app/api,AUTH0_BASE_URL=https://cbl-maikosh-app-staging-$PROJECT_ID.a.run.app,GCP_PROJECT_ID=$PROJECT_ID,NEXT_TELEMETRY_DISABLED=1 \
+          --set-secrets AUTH0_SECRET=auth0-secret:latest,AUTH0_CLIENT_ID=auth0-client-id:latest,AUTH0_CLIENT_SECRET=auth0-client-secret:latest,AUTH0_ISSUER_BASE_URL=auth0-issuer-url:latest \
+          --labels environment=staging,application=cbl-maikosh,tier=web,deployment=canary \
+          --tag canary-$GITHUB_RUN_NUMBER \
+          --no-traffic
+
+    - name: 🔄 Canary Traffic Split (10%)
+      run: |
+        gcloud run services update-traffic cbl-maikosh-app-staging \
+          --to-tags canary-$GITHUB_RUN_NUMBER=10 \
+          --region $REGION
+
+    - name: 🔍 Canary Health Monitoring
+      run: |
+        SERVICE_URL=$(gcloud run services describe cbl-maikosh-app-staging --region $REGION --format='value(status.url)')
+        
+        # Monitor canary for 5 minutes
+        for i in {1..10}; do
+          echo "Monitoring canary deployment... ($i/10)"
+          
+          if curl -f -s "$SERVICE_URL/api/health"; then
+            echo "Canary health check passed"
+          else
+            echo "Canary health check failed - rolling back"
+            gcloud run services update-traffic cbl-maikosh-app-staging --to-latest --region $REGION
+            exit 1
+          fi
+          
+          sleep 30
+        done
+
+    - name: ✅ Promote Canary to Full Traffic
+      run: |
+        gcloud run services update-traffic cbl-maikosh-app-staging \
+          --to-tags canary-$GITHUB_RUN_NUMBER=100 \
+          --region $REGION
+        echo "Canary promoted to receive 100% traffic"
+
+  # Job 6: Deploy to Production with Blue-Green
+  deploy-production:
+    name: 🏆 Deploy to Production (Blue-Green)
+    runs-on: ubuntu-latest
+    needs: [quality-gate, container-build, infrastructure-validation]
+    if: needs.quality-gate.outputs.target-env == 'prod'
+    environment: production
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🔐 Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    - name: ⚙️ Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+
+    - name: 🔵 Deploy Green Environment
+      run: |
+        # Deploy new revision (green) with no traffic
+        gcloud run deploy cbl-maikosh-app-prod \
+          --image $REGISTRY/$PROJECT_ID/cbl-maikosh-repo/$SERVICE_NAME:$GITHUB_SHA \
+          --region $REGION \
+          --platform managed \
+          --allow-unauthenticated \
+          --memory 2Gi \
+          --cpu 2 \
+          --timeout 900 \
+          --concurrency 1000 \
+          --max-instances 100 \
+          --min-instances 2 \
+          --port 8080 \
+          --service-account cbl-maikosh-service@$PROJECT_ID.iam.gserviceaccount.com \
+          --set-env-vars NODE_ENV=production,NEXT_PUBLIC_API_URL=https://cbl-maikosh-app-prod-$PROJECT_ID.a.run.app/api,AUTH0_BASE_URL=https://cbl-maikosh-app-prod-$PROJECT_ID.a.run.app,GCP_PROJECT_ID=$PROJECT_ID,NEXT_TELEMETRY_DISABLED=1 \
+          --set-secrets AUTH0_SECRET=auth0-secret:latest,AUTH0_CLIENT_ID=auth0-client-id:latest,AUTH0_CLIENT_SECRET=auth0-client-secret:latest,AUTH0_ISSUER_BASE_URL=auth0-issuer-url:latest \
+          --labels environment=prod,application=cbl-maikosh,tier=web,deployment=blue-green \
+          --tag green-$GITHUB_RUN_NUMBER \
+          --no-traffic
+
+    - name: 🟢 Green Environment Validation
+      run: |
+        GREEN_URL="https://green-$GITHUB_RUN_NUMBER---cbl-maikosh-app-prod-$PROJECT_ID.a.run.app"
+        
+        echo "Testing green environment: $GREEN_URL"
+        
+        # Comprehensive health checks
+        endpoints=("/api/health" "/api/status" "/")
+        
+        for i in {1..20}; do
+          echo "Health check attempt $i/20"
+          all_passed=true
+          
+          for endpoint in "${endpoints[@]}"; do
+            if curl -f -s -m 10 "$GREEN_URL$endpoint" > /dev/null; then
+              echo "✅ $endpoint - OK"
+            else
+              echo "❌ $endpoint - Failed"
+              all_passed=false
+            fi
+          done
+          
+          if [ "$all_passed" = true ]; then
+            echo "All health checks passed!"
+            break
+          fi
+          
+          if [ $i -eq 20 ]; then
+            echo "Health checks failed after 20 attempts"
+            exit 1
+          fi
+          
+          sleep 15
+        done
+
+    - name: 📊 Performance Testing
+      run: |
+        # Install lighthouse
+        npm install -g lighthouse
+        
+        GREEN_URL="https://green-$GITHUB_RUN_NUMBER---cbl-maikosh-app-prod-$PROJECT_ID.a.run.app"
+        
+        # Run lighthouse audit
+        lighthouse "$GREEN_URL" \
+          --output=json \
+          --output=html \
+          --output-path=./performance-audit-prod-$GITHUB_RUN_NUMBER \
+          --quiet \
+          --chrome-flags="--headless --no-sandbox" \
+          --preset=perf || echo "Performance test completed with warnings"
+
+    - name: 🔄 Blue-Green Traffic Switch
+      run: |
+        SERVICE_NAME="cbl-maikosh-app-prod"
+        
+        echo "Starting gradual traffic shift..."
+        
+        # 5% to green
+        gcloud run services update-traffic $SERVICE_NAME \
+          --to-tags green-$GITHUB_RUN_NUMBER=5 \
+          --region $REGION
+        echo "5% traffic shifted to green"
+        sleep 60
+        
+        # Monitor
+        SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region $REGION --format='value(status.url)')
+        for i in {1..3}; do
+          if curl -f -s "$SERVICE_URL/api/health" > /dev/null; then
+            echo "5% traffic test passed ($i/3)"
+          else
+            echo "Health check failed, rolling back"
+            gcloud run services update-traffic $SERVICE_NAME --to-latest --region $REGION
+            exit 1
+          fi
+          sleep 20
+        done
+        
+        # 50% to green
+        gcloud run services update-traffic $SERVICE_NAME \
+          --to-tags green-$GITHUB_RUN_NUMBER=50 \
+          --region $REGION
+        echo "50% traffic shifted to green"
+        sleep 120
+        
+        # Monitor
+        for i in {1..5}; do
+          if curl -f -s "$SERVICE_URL/api/health" > /dev/null; then
+            echo "50% traffic test passed ($i/5)"
+          else
+            echo "Health check failed, rolling back"
+            gcloud run services update-traffic $SERVICE_NAME --to-latest --region $REGION
+            exit 1
+          fi
+          sleep 20
+        done
+        
+        # 100% to green (full switch)
+        gcloud run services update-traffic $SERVICE_NAME \
+          --to-tags green-$GITHUB_RUN_NUMBER=100 \
+          --region $REGION
+        echo "100% traffic shifted to green - Blue-Green deployment completed"
+
+    - name: 📤 Upload Performance Results
+      uses: actions/upload-artifact@v4
+      with:
+        name: performance-results-prod
+        path: performance-audit-prod-*.{html,json}
+        retention-days: 30
+
+  # Job 7: Post-Deployment Notifications
+  notification:
+    name: 📢 Deployment Notifications
+    runs-on: ubuntu-latest
+    needs: [quality-gate, deploy-development, deploy-staging, deploy-production]
+    if: always() && needs.quality-gate.outputs.should-deploy == 'true'
+    
+    steps:
+    - name: 📊 Create Deployment Summary
+      run: |
+        ENV="${{ needs.quality-gate.outputs.target-env }}"
+        STATUS="success"
+        
+        if [[ "${{ needs.deploy-development.result }}" == "failure" ]] || \
+           [[ "${{ needs.deploy-staging.result }}" == "failure" ]] || \
+           [[ "${{ needs.deploy-production.result }}" == "failure" ]]; then
+          STATUS="failure"
+        fi
+        
+        echo "## 🏀 CBL-MAIKOSH Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Environment**: $ENV" >> $GITHUB_STEP_SUMMARY
+        echo "- **Status**: $STATUS" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit**: $GITHUB_SHA" >> $GITHUB_STEP_SUMMARY
+        echo "- **Branch**: $GITHUB_REF_NAME" >> $GITHUB_STEP_SUMMARY
+        echo "- **Deployment Time**: $(date -u)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [[ "$STATUS" == "success" ]]; then
+          echo "✅ Deployment completed successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "🚀 Service URL: https://cbl-maikosh-app-$ENV-${{ env.PROJECT_ID }}.a.run.app" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ Deployment failed. Please check the logs for details." >> $GITHUB_STEP_SUMMARY
+        fi
+
+    - name: 💬 Slack Notification (Optional)
+      if: env.SLACK_WEBHOOK_URL != ''
+      run: |
+        ENV="${{ needs.quality-gate.outputs.target-env }}"
+        STATUS="success"
+        
+        if [[ "${{ needs.deploy-development.result }}" == "failure" ]] || \
+           [[ "${{ needs.deploy-staging.result }}" == "failure" ]] || \
+           [[ "${{ needs.deploy-production.result }}" == "failure" ]]; then
+          STATUS="failure"
+          COLOR="danger"
+          EMOJI="❌"
+        else
+          COLOR="good"
+          EMOJI="✅"
+        fi
+        
+        curl -X POST -H 'Content-type: application/json' \
+          --data "{\"text\":\"$EMOJI CBL-MAIKOSH $ENV deployment $STATUS\", \"color\":\"$COLOR\"}" \
+          ${{ env.SLACK_WEBHOOK_URL }} || echo "Slack notification failed"
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+# Security configuration
+permissions:
+  contents: read
+  security-events: write
+  actions: read

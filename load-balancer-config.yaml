@@ -1,0 +1,409 @@
+# Global Load Balancer Configuration for CBL-MAIKOSH Basketball Coaching Platform
+# This sets up HTTPS load balancing with SSL certificates and CDN integration
+
+apiVersion: compute.cnrm.cloud.google.com/v1beta1
+kind: ComputeGlobalAddress
+metadata:
+  name: cbl-maikosh-global-ip
+  namespace: cbl-maikosh-prod
+spec:
+  description: "Static IP for CBL-MAIKOSH load balancer"
+  
+---
+# SSL Certificate for custom domain
+apiVersion: compute.cnrm.cloud.google.com/v1beta1
+kind: ComputeManagedSSLCertificate
+metadata:
+  name: cbl-maikosh-ssl-cert
+  namespace: cbl-maikosh-prod
+spec:
+  description: "SSL certificate for CBL-MAIKOSH domain"
+  managed:
+    domains:
+    - "cbl-maikosh.com"
+    - "www.cbl-maikosh.com"
+    - "app.cbl-maikosh.com"
+
+---
+# Backend service pointing to Cloud Run
+apiVersion: compute.cnrm.cloud.google.com/v1beta1
+kind: ComputeBackendService
+metadata:
+  name: cbl-maikosh-backend-service
+  namespace: cbl-maikosh-prod
+spec:
+  description: "Backend service for CBL-MAIKOSH application"
+  protocol: "HTTP"
+  timeoutSec: 30
+  enableCDN: true
+  
+  # CDN configuration for optimal performance
+  cdnPolicy:
+    cacheMode: "CACHE_ALL_STATIC"
+    defaultTtl: 3600
+    maxTtl: 86400
+    clientTtl: 3600
+    negativeCaching: true
+    negativeCachingPolicy:
+    - code: 404
+      ttl: 300
+    - code: 410
+      ttl: 300
+    
+    # Cache key policy for better cache hit rates
+    cacheKeyPolicy:
+      includeHost: true
+      includeProtocol: true
+      includeQueryString: false
+      queryStringWhitelist:
+      - "module"
+      - "lesson"
+      - "v"  # Version parameter
+    
+    # Compression for better performance
+    compressionMode: "AUTOMATIC"
+    
+  # Health check configuration
+  healthChecks:
+  - name: "cbl-maikosh-health-check"
+    
+  # Security and performance settings
+  connectionDraining:
+    drainingTimeoutSec: 300
+    
+  # Session affinity for consistent user experience
+  sessionAffinity: "CLIENT_IP"
+  
+  # Cloud Run backend configuration
+  backends:
+  - group: "https://www.googleapis.com/compute/v1/projects/zeidgeistdotcom/regions/us-central1/networkEndpointGroups/cbl-maikosh-neg"
+    balancingMode: "UTILIZATION"
+    maxUtilization: 0.8
+    capacityScaler: 1.0
+
+---
+# Health check for the backend service
+apiVersion: compute.cnrm.cloud.google.com/v1beta1
+kind: ComputeHealthCheck
+metadata:
+  name: cbl-maikosh-health-check
+  namespace: cbl-maikosh-prod
+spec:
+  description: "Health check for CBL-MAIKOSH backend"
+  timeoutSec: 10
+  checkIntervalSec: 30
+  healthyThreshold: 2
+  unhealthyThreshold: 3
+  
+  httpHealthCheck:
+    requestPath: "/api/health"
+    port: 8080
+    host: ""
+    proxyHeader: "NONE"
+
+---
+# URL map for routing
+apiVersion: compute.cnrm.cloud.google.com/v1beta1
+kind: ComputeURLMap
+metadata:
+  name: cbl-maikosh-url-map
+  namespace: cbl-maikosh-prod
+spec:
+  description: "URL map for CBL-MAIKOSH application"
+  defaultService:
+    backendServiceRef:
+      name: cbl-maikosh-backend-service
+      
+  # Custom routing rules
+  hostRules:
+  - hosts:
+    - "cbl-maikosh.com"
+    - "www.cbl-maikosh.com" 
+    - "app.cbl-maikosh.com"
+    pathMatcher: "main-path-matcher"
+    
+  pathMatchers:
+  - name: "main-path-matcher"
+    defaultService:
+      backendServiceRef:
+        name: cbl-maikosh-backend-service
+    
+    # Static asset routing with long cache times
+    pathRules:
+    - paths:
+      - "/_next/static/*"
+      - "/static/*"
+      - "/images/*"
+      - "/favicon.ico"
+      - "/robots.txt"
+      service:
+        backendServiceRef:
+          name: cbl-maikosh-backend-service
+      routeAction:
+        corsPolicy:
+          allowOrigins:
+          - "https://cbl-maikosh.com"
+          - "https://www.cbl-maikosh.com"
+          allowMethods:
+          - "GET"
+          - "HEAD"
+          - "OPTIONS"
+          allowHeaders:
+          - "Content-Type"
+          - "Authorization"
+          maxAge: 86400
+          
+    # API routing with no caching
+    - paths:
+      - "/api/*"
+      service:
+        backendServiceRef:
+          name: cbl-maikosh-backend-service
+      routeAction:
+        corsPolicy:
+          allowOrigins:
+          - "https://cbl-maikosh.com"
+          - "https://www.cbl-maikosh.com"
+          allowMethods:
+          - "GET"
+          - "POST"
+          - "PUT"
+          - "DELETE"
+          - "HEAD"
+          - "OPTIONS"
+          allowHeaders:
+          - "Content-Type"
+          - "Authorization"
+          - "X-Requested-With"
+          maxAge: 0
+
+---
+# HTTPS proxy
+apiVersion: compute.cnrm.cloud.google.com/v1beta1
+kind: ComputeTargetHTTPSProxy
+metadata:
+  name: cbl-maikosh-https-proxy
+  namespace: cbl-maikosh-prod
+spec:
+  description: "HTTPS proxy for CBL-MAIKOSH"
+  urlMapRef:
+    name: cbl-maikosh-url-map
+  sslCertificates:
+  - name: cbl-maikosh-ssl-cert
+
+---
+# HTTP to HTTPS redirect proxy
+apiVersion: compute.cnrm.cloud.google.com/v1beta1
+kind: ComputeTargetHTTPProxy
+metadata:
+  name: cbl-maikosh-http-proxy
+  namespace: cbl-maikosh-prod
+spec:
+  description: "HTTP proxy for HTTPS redirect"
+  urlMapRef:
+    name: cbl-maikosh-redirect-map
+
+---
+# URL map for HTTP to HTTPS redirect
+apiVersion: compute.cnrm.cloud.google.com/v1beta1
+kind: ComputeURLMap
+metadata:
+  name: cbl-maikosh-redirect-map
+  namespace: cbl-maikosh-prod
+spec:
+  description: "Redirect HTTP to HTTPS"
+  defaultUrlRedirect:
+    redirectResponseCode: "MOVED_PERMANENTLY_DEFAULT"
+    httpsRedirect: true
+    stripQuery: false
+
+---
+# Global forwarding rule for HTTPS
+apiVersion: compute.cnrm.cloud.google.com/v1beta1
+kind: ComputeGlobalForwardingRule
+metadata:
+  name: cbl-maikosh-https-forwarding-rule
+  namespace: cbl-maikosh-prod
+spec:
+  description: "HTTPS forwarding rule for CBL-MAIKOSH"
+  target:
+    targetHTTPSProxyRef:
+      name: cbl-maikosh-https-proxy
+  portRange: "443"
+  ipAddress:
+    addressRef:
+      name: cbl-maikosh-global-ip
+
+---
+# Global forwarding rule for HTTP redirect
+apiVersion: compute.cnrm.cloud.google.com/v1beta1
+kind: ComputeGlobalForwardingRule
+metadata:
+  name: cbl-maikosh-http-forwarding-rule
+  namespace: cbl-maikosh-prod
+spec:
+  description: "HTTP forwarding rule for HTTPS redirect"
+  target:
+    targetHTTPProxyRef:
+      name: cbl-maikosh-http-proxy
+  portRange: "80"
+  ipAddress:
+    addressRef:
+      name: cbl-maikosh-global-ip
+
+---
+# Network Endpoint Group for Cloud Run
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloud-run-neg-config
+data:
+  create-neg.sh: |
+    #!/bin/bash
+    set -e
+    
+    PROJECT_ID=${PROJECT_ID:-zeidgeistdotcom}
+    REGION=${REGION:-us-central1}
+    SERVICE_NAME=${SERVICE_NAME:-cbl-maikosh-app}
+    
+    echo "🏀 Creating Network Endpoint Group for Cloud Run service..."
+    
+    # Create serverless NEG
+    gcloud compute network-endpoint-groups create cbl-maikosh-neg \
+        --region=$REGION \
+        --network-endpoint-type=serverless \
+        --cloud-run-service=$SERVICE_NAME \
+        --project=$PROJECT_ID || echo "NEG already exists"
+    
+    echo "✅ Network Endpoint Group created successfully!"
+    echo "📡 NEG: cbl-maikosh-neg in region $REGION"
+
+---
+# Load balancer deployment script
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: load-balancer-deployment
+data:
+  deploy-load-balancer.sh: |
+    #!/bin/bash
+    set -e
+    
+    PROJECT_ID=${PROJECT_ID:-zeidgeistdotcom}
+    REGION=${REGION:-us-central1}
+    SERVICE_NAME=${SERVICE_NAME:-cbl-maikosh-app}
+    DOMAIN=${DOMAIN:-cbl-maikosh.com}
+    
+    echo "🏀 Deploying CBL-MAIKOSH Load Balancer Infrastructure..."
+    
+    # Reserve static IP address
+    echo "📡 Creating static IP address..."
+    gcloud compute addresses create cbl-maikosh-global-ip \
+        --global \
+        --project=$PROJECT_ID || echo "IP already exists"
+    
+    # Get the reserved IP address
+    STATIC_IP=$(gcloud compute addresses describe cbl-maikosh-global-ip --global --format="value(address)" --project=$PROJECT_ID)
+    echo "🌐 Reserved IP Address: $STATIC_IP"
+    
+    # Create serverless NEG
+    echo "🔗 Creating Network Endpoint Group..."
+    gcloud compute network-endpoint-groups create cbl-maikosh-neg \
+        --region=$REGION \
+        --network-endpoint-type=serverless \
+        --cloud-run-service=$SERVICE_NAME \
+        --project=$PROJECT_ID || echo "NEG already exists"
+    
+    # Create health check
+    echo "❤️ Creating health check..."
+    gcloud compute health-checks create http cbl-maikosh-health-check \
+        --request-path="/api/health" \
+        --port=8080 \
+        --check-interval=30s \
+        --timeout=10s \
+        --healthy-threshold=2 \
+        --unhealthy-threshold=3 \
+        --project=$PROJECT_ID || echo "Health check already exists"
+    
+    # Create backend service with CDN
+    echo "🔧 Creating backend service with CDN..."
+    gcloud compute backend-services create cbl-maikosh-backend-service \
+        --global \
+        --health-checks=cbl-maikosh-health-check \
+        --enable-cdn \
+        --cache-mode=CACHE_ALL_STATIC \
+        --default-ttl=3600 \
+        --max-ttl=86400 \
+        --client-ttl=3600 \
+        --negative-caching \
+        --project=$PROJECT_ID || echo "Backend service already exists"
+    
+    # Add NEG as backend
+    echo "🔌 Adding Cloud Run service to backend..."
+    gcloud compute backend-services add-backend cbl-maikosh-backend-service \
+        --global \
+        --network-endpoint-group=cbl-maikosh-neg \
+        --network-endpoint-group-region=$REGION \
+        --project=$PROJECT_ID || echo "Backend already added"
+    
+    # Create SSL certificate
+    echo "🔒 Creating SSL certificate..."
+    gcloud compute ssl-certificates create cbl-maikosh-ssl-cert \
+        --domains=$DOMAIN,www.$DOMAIN \
+        --global \
+        --project=$PROJECT_ID || echo "SSL cert already exists"
+    
+    # Create URL map
+    echo "🗺️ Creating URL map..."
+    gcloud compute url-maps create cbl-maikosh-url-map \
+        --default-service=cbl-maikosh-backend-service \
+        --global \
+        --project=$PROJECT_ID || echo "URL map already exists"
+    
+    # Create HTTPS proxy
+    echo "🔐 Creating HTTPS proxy..."
+    gcloud compute target-https-proxies create cbl-maikosh-https-proxy \
+        --url-map=cbl-maikosh-url-map \
+        --ssl-certificates=cbl-maikosh-ssl-cert \
+        --global \
+        --project=$PROJECT_ID || echo "HTTPS proxy already exists"
+    
+    # Create forwarding rule for HTTPS
+    echo "📨 Creating HTTPS forwarding rule..."
+    gcloud compute forwarding-rules create cbl-maikosh-https-forwarding-rule \
+        --address=cbl-maikosh-global-ip \
+        --global \
+        --target-https-proxy=cbl-maikosh-https-proxy \
+        --ports=443 \
+        --project=$PROJECT_ID || echo "HTTPS forwarding rule already exists"
+    
+    # Create HTTP to HTTPS redirect
+    echo "↩️ Creating HTTP to HTTPS redirect..."
+    gcloud compute url-maps create cbl-maikosh-redirect-map \
+        --default-url-redirect-response-code=301 \
+        --default-url-redirect-https-redirect \
+        --global \
+        --project=$PROJECT_ID || echo "Redirect map already exists"
+    
+    gcloud compute target-http-proxies create cbl-maikosh-http-proxy \
+        --url-map=cbl-maikosh-redirect-map \
+        --global \
+        --project=$PROJECT_ID || echo "HTTP proxy already exists"
+    
+    gcloud compute forwarding-rules create cbl-maikosh-http-forwarding-rule \
+        --address=cbl-maikosh-global-ip \
+        --global \
+        --target-http-proxy=cbl-maikosh-http-proxy \
+        --ports=80 \
+        --project=$PROJECT_ID || echo "HTTP forwarding rule already exists"
+    
+    echo "✅ Load Balancer deployed successfully!"
+    echo "🌐 Static IP: $STATIC_IP"
+    echo "🔒 SSL Certificate: cbl-maikosh-ssl-cert"
+    echo "📡 Point your DNS records to: $STATIC_IP"
+    echo ""
+    echo "DNS Configuration Required:"
+    echo "A Record: $DOMAIN -> $STATIC_IP"
+    echo "A Record: www.$DOMAIN -> $STATIC_IP"
+    echo ""
+    echo "⏰ SSL certificate provisioning may take 10-60 minutes"
