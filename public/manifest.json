@@ -1,0 +1,104 @@
+{
+  "name": "CBL_alloui Basketball Coaching Level I",
+  "short_name": "CBL_alloui",
+  "description": "Basketball Coaching Level I web application with 12 interactive learning modules designed for accessibility and inclusive learning",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#FF6B35",
+  "background_color": "#FFFFFF",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "lang": "en-US",
+  "dir": "ltr",
+  "categories": ["education", "sports", "training"],
+  "iarc_rating_id": "e84b072d-71b3-4d3e-86ae-31a8ce4e53b7",
+  "icons": [
+    {
+      "src": "/icons/alloui_logo_nobg.png",
+      "sizes": "72x72 96x96 128x128 144x144 152x152 192x192 384x384 512x512",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/alloui_logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshots/desktop-home.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "platform": "wide",
+      "label": "Home page showing module overview"
+    },
+    {
+      "src": "/screenshots/mobile-modules.png",
+      "sizes": "375x667",
+      "type": "image/png",
+      "platform": "narrow",
+      "label": "Learning modules on mobile device"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Learning Modules",
+      "short_name": "Modules",
+      "description": "View all 12 basketball coaching modules",
+      "url": "/modules",
+      "icons": [
+        {
+          "src": "/icons/alloui_logo_nobg.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Progress",
+      "short_name": "Progress",
+      "description": "Check your learning progress",
+      "url": "/profile",
+      "icons": [
+        {
+          "src": "/icons/alloui_logo_nobg.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ],
+  "display_override": ["window-controls-overlay"],
+  "edge_side_panel": {
+    "preferred_width": 400
+  },
+  "file_handlers": [
+    {
+      "action": "/upload",
+      "accept": {
+        "application/pdf": [".pdf"],
+        "image/*": [".jpg", ".jpeg", ".png", ".gif"]
+      }
+    }
+  ],
+  "protocol_handlers": [
+    {
+      "protocol": "mailto",
+      "url": "/contact?email=%s"
+    }
+  ],
+  "prefer_related_applications": false,
+  "related_applications": [
+    {
+      "platform": "play",
+      "url": "https://play.google.com/store/apps/details?id=com.maba.cbl",
+      "id": "com.maba.cbl"
+    },
+    {
+      "platform": "itunes",
+      "url": "https://apps.apple.com/app/cbl-alloui/id123456789"
+    }
+  ]
+}

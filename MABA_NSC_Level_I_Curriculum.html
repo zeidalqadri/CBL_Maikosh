@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MABA/NSC Basketball Coaching Level I — A Comprehensive Curriculum</title>
+  <style>
+    :root{
+      --bg:#ffffff;
+      --fg:#121212;
+      --muted:#5b5b5b;
+      --accent:#0b3d91;
+      --accent-2:#1860d0;
+      --surface:#f7f9fc;
+      --border:#e5e7eb;
+      --maxw:960px;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      color:var(--fg);
+      background:var(--bg);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, Apple Color Emoji, Segoe UI Emoji;
+      line-height:1.6;
+      -webkit-font-smoothing:antialiased;
+      text-rendering:optimizeLegibility;
+    }
+    a{color:var(--accent-2); text-decoration: none}
+    a:hover{text-decoration: underline}
+    .container{
+      max-width:var(--maxw);
+      margin:0 auto;
+      padding:24px 16px 48px;
+    }
+    header.hero{
+      background:linear-gradient(155deg, var(--surface), #fff);
+      border-bottom:1px solid var(--border);
+      padding:32px 0;
+      margin-bottom:16px;
+    }
+    .hero h1{
+      font-size: clamp(1.6rem, 1.2rem + 2vw, 2.4rem);
+      margin:0 0 8px;
+      line-height:1.2;
+      color:var(--accent);
+      font-weight:800;
+    }
+    .hero p{
+      margin:0;
+      color:var(--muted);
+    }
+
+    /* TOC */
+    nav.toc{
+      position: sticky;
+      top:0;
+      z-index: 10;
+      background:linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,255,255,0.92));
+      backdrop-filter: saturate(1.2) blur(4px);
+      border-bottom:1px solid var(--border);
+    }
+    .toc .inner{
+      max-width:var(--maxw);
+      margin:0 auto;
+      padding:8px 16px;
+      display:flex;
+      flex-wrap:wrap;
+      gap:12px;
+      align-items:center;
+    }
+    .toc a{
+      display:inline-block;
+      padding:6px 10px;
+      border:1px solid var(--border);
+      border-radius:10px;
+      background:#fff;
+      font-size:14px;
+      white-space:nowrap;
+    }
+    .toc a:hover{background:var(--surface)}
+
+    /* Sections */
+    section{
+      padding:24px 0;
+      border-bottom:1px dashed var(--border);
+    }
+    section:last-of-type{border-bottom:none}
+    h2{
+      margin:0 0 12px;
+      font-size: clamp(1.25rem, 1rem + 1vw, 1.75rem);
+      color:var(--accent);
+      line-height:1.25;
+    }
+    h3{
+      margin:16px 0 8px;
+      font-size: clamp(1.05rem, 0.95rem + 0.6vw, 1.25rem);
+      line-height:1.35;
+    }
+    p{margin:8px 0}
+    ul, ol{margin:8px 0 8px 20px}
+    li{margin:6px 0}
+    .fine{color:var(--muted); font-size:0.95rem}
+    .tag{display:inline-block; font-size:12px; padding:2px 8px; border:1px solid var(--border); border-radius:999px; background:#fff; color:var(--muted)}
+
+    /* Blocks */
+    .block{
+      background:#fff;
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:16px;
+      margin:12px 0;
+      box-shadow: 0 1px 0 rgba(17,24,39,0.02);
+    }
+    .grid-2{
+      display:grid; gap:16px;
+      grid-template-columns: repeat(2, minmax(0,1fr));
+    }
+    @media (max-width: 840px){
+      .grid-2{grid-template-columns:1fr}
+    }
+
+    .qa dl{margin:0}
+    .qa dt{
+      font-weight:700;
+      margin-top:10px;
+    }
+    .qa dd{
+      margin:6px 0 0 0;
+    }
+
+    .top-link{
+      display:inline-block; margin-top:8px; font-size:13px
+    }
+
+    /* Print-safe rules */
+    @media print{
+      nav.toc{position:static}
+      .toc a{border-color:#bbb}
+      a[href]::after{content:" (" attr(href) ")"; font-size:11px; color:#666}
+      .block{box-shadow:none}
+      h2, h3{break-after:avoid; page-break-after:avoid}
+      h2 + .block, h3 + .block{break-inside:avoid; page-break-inside:avoid}
+      ul, ol{break-inside:avoid}
+      .page-break{break-before:page; page-break-before:always}
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="container">
+      <h1>MABA/NSC Basketball Coaching Level I: A Comprehensive Curriculum</h1>
+      <p class="fine">
+        This module converts the provided script into a human‑readable, educational format with lessons, quizzes, and practical drills. 
+        The layout is responsive and print‑friendly.
+      </p>
+    </div>
+  </header>
+
+  <nav class="toc" aria-label="Table of contents">
+    <div class="inner">
+      <span class="tag">Jump to:</span>
+      <a href="#m1">M1 Intro</a>
+      <a href="#m2">M2 Rules & Positions</a>
+      <a href="#m3">M3 Violations</a>
+      <a href="#m4">M4 Fouls & Signals</a>
+      <a href="#m5">M5 Equipment & Court</a>
+      <a href="#m6">M6 Movement & Handling</a>
+      <a href="#m7">M7 Dribbling</a>
+      <a href="#m8">M8 Shooting & Rebounding</a>
+      <a href="#m9">M9 Strategy & Tactics</a>
+      <a href="#m10">M10 Communication & Ethics</a>
+      <a href="#m11">M11 Planning</a>
+      <a href="#m12">M12 Sports Science</a>
+      <a href="#top">Top</a>
+    </div>
+  </nav>
+
+  <main id="top" class="container">
+
+    <section id="intro">
+      <div class="block">
+        <p>
+          This curriculum outlines a complete coaching pathway: learning outcomes, key concepts with examples, quizzes to test knowledge, 
+          and practical drills to apply what's learned. Use the table of contents above to jump between modules.
+        </p>
+      </div>
+    </section>
+
+    <!-- M1 -->
+    <section id="m1">
+      <h2>M1: Introduction to Coaching</h2>
+
+      <h3>Learning Outcomes</h3>
+      <div class="block">
+        <ul>
+          <li>Identify the multiple roles a coach must perform.</li>
+          <li>Understand different coaching styles and their impact.</li>
+          <li>Define and begin to formulate a personal coaching philosophy.</li>
+          <li>Recognize the three phases of skill acquisition for beginners.</li>
+        </ul>
+      </div>
+
+      <h3>Key Concepts</h3>
+      <div class="block">
+        <ul>
+          <li><strong>The Coach's Roles:</strong> A coach is a teacher, motivator, disciplinarian, organizer, public relations officer, fund raiser, advisor, friend, scientist, and student.</li>
+          <li><strong>Coaching Styles:</strong> Styles range from ‘Authoritarian’ (strict, command‑style) to ‘Nice‑Guy’ (co‑operative). A successful coach often blends these styles.</li>
+          <li><strong>Coaching Philosophy:</strong> What a coach genuinely believes is important for success; the foundation for actions and decisions. It includes a <em>General Philosophy</em> (values, relationships) and a <em>Technical Philosophy</em> (system of play).</li>
+          <li><strong>Phases of Learning:</strong> Beginners learn in three phases: the <em>Try it</em> phase (conscious thought), the <em>Mastering</em> phase (associative), and the <em>Automatic</em> phase (autonomous).</li>
+        </ul>
+      </div>
+
+      <h3>Practical Drills</h3>
+      <div class="block">
+        <ul>
+          <li><strong>Coaching Style Role‑Play:</strong> Coach acts out a style while explaining a drill; players identify the style from communication cues.</li>
+          <li><strong>Personal Philosophy Builder:</strong> Guided prompts to write a personal coaching philosophy—purpose, definition of success, and player treatment.</li>
+        </ul>
+      </div>
+
+      <h3>Quizzes &amp; Answers</h3>
+      <div class="block qa">
+        <dl>
+          <dt>Question: According to the manual, what is a primary role of a coach?</dt><dd>Answer: A teacher, motivator, and disciplinarian.</dd>
+          <dt>Question: What are the three phases of learning a physical skill for a beginner coach to know?</dt><dd>Answer: Try it, mastering, automatic.</dd>
+          <dt>Question: A coach's philosophy is primarily about what?</dt><dd>Answer: What the coach genuinely believes is important to coaching success.</dd>
+          <dt>Question: Which coaching style is described as ‘strict, disciplined, punishes frequently’?</dt><dd>Answer: ‘Authoritarian’ Coach.</dd>
+          <dt>Question: The acronym COACH stands for Comprehensive, Outlook, Affection, Character, and...?</dt><dd>Answer: Humor.</dd>
+        </dl>
+      </div>
+
+      <a class="top-link" href="#top">↑ Back to top</a>
+    </section>
+
+    <!-- M2 -->
+    <section id="m2">
+      <h2>M2: Rules &amp; Player Positions</h2>
+
+      <h3>Learning Outcomes</h3>
+      <div class="block">
+        <ul>
+          <li>State the number of players on the court and on a team.</li>
+          <li>Identify the 5 primary basketball positions.</li>
+          <li>Describe the main offensive and defensive responsibilities for each position.</li>
+          <li>Understand the basic scoring values.</li>
+        </ul>
+      </div>
+
+      <h3>Key Concepts</h3>
+      <div class="block">
+        <ul>
+          <li><strong>Number of Players:</strong> A team has 12 players, but only 5 are on the court at a time.</li>
+          <li><strong>Positions:</strong> Roles are usually determined by height.</li>
+          <li><strong>Position Roles:</strong></li>
+          <ul>
+            <li><strong>Point Guard (PG/#1):</strong> The “coach on the floor” and primary ball‑handler.</li>
+            <li><strong>Off‑Guard (SG/#2):</strong> Generally the best shooter.</li>
+            <li><strong>Small Forward (SF/#3):</strong> The most versatile player.</li>
+            <li><strong>Power Forward (PF/#4):</strong> Strong rebounder and interior player.</li>
+            <li><strong>Center (C/#5):</strong> The tallest player, who protects the basket and scores inside.</li>
+          </ul>
+          <li><strong>Scoring:</strong> 3 points from outside the three‑point line, 2 points from inside, and 1 point for a free throw.</li>
+        </ul>
+      </div>
+
+      <h3>Practical Drills</h3>
+      <div class="block">
+        <ul>
+          <li><strong>Position Hotspots:</strong> Players sprint to cones at each position on the coach’s call to build court awareness.</li>
+          <li><strong>Role Responsibilities Shout‑Out:</strong> Players rapidly name responsibilities for a called position—offense or defense.</li>
+        </ul>
+      </div>
+
+      <h3>Quizzes &amp; Answers</h3>
+      <div class="block qa">
+        <dl>
+          <dt>Question: How many players per team are on the court during a regulation game?</dt><dd>Answer: 5.</dd>
+          <dt>Question: What is the primary offensive responsibility of a Point Guard?</dt><dd>Answer: Dribbling, passing, and setting up plays.</dd>
+          <dt>Question: A successful shot from outside the three‑point line is worth how many points?</dt><dd>Answer: 3.</dd>
+          <dt>Question: Which position is generally the tallest player on the team?</dt><dd>Answer: Center.</dd>
+          <dt>Question: Which player is also referred to as the #2 guard?</dt><dd>Answer: Off‑Guard.</dd>
+        </dl>
+      </div>
+
+      <a class="top-link" href="#top">↑ Back to top</a>
+    </section>
+
+    <!-- M3 -->
+    <section id="m3">
+      <h2>M3: Violations</h2>
+
+      <h3>Learning Outcomes</h3>
+      <div class="block">
+        <ul>
+          <li>Define what a violation is in basketball.</li>
+          <li>Differentiate between key violations like Traveling, Double Dribble, and Carrying.</li>
+          <li>Understand time‑based restrictions like the 3‑second, 5‑second, and 8‑second rules.</li>
+          <li>Know the penalty for a violation.</li>
+        </ul>
+      </div>
+
+      <h3>Key Concepts</h3>
+      <div class="block">
+        <ul>
+          <li><strong>Violation Definition:</strong> An infraction of the rules that does not involve illegal contact. The penalty is a throw‑in for the opposing team.</li>
+          <li><strong>Ball Handling Violations:</strong></li>
+          <ul>
+            <li><strong>Traveling:</strong> Illegally moving the pivot foot.</li>
+            <li><strong>Double Dribble:</strong> Dribbling, stopping, and dribbling again.</li>
+            <li><strong>Carrying/Palming:</strong> Hand goes under the ball while dribbling.</li>
+          </ul>
+          <li><strong>Time Restrictions:</strong></li>
+          <ul>
+            <li><strong>5‑Second Rule:</strong> To pass the ball inbounds.</li>
+            <li><strong>8‑Second Rule:</strong> To advance the ball from backcourt to frontcourt.</li>
+            <li><strong>3‑Second Rule:</strong> Offensive players cannot remain in the key for more than three seconds.</li>
+          </ul>
+          <li><strong>Other Violations:</strong></li>
+          <ul>
+            <li><strong>Goaltending:</strong> Interfering with a shot on its downward flight.</li>
+            <li><strong>Backcourt Violation:</strong> Illegally returning the ball to the backcourt.</li>
+          </ul>
+        </ul>
+      </div>
+
+      <h3>Practical Drills</h3>
+      <div class="block">
+        <ul>
+          <li><strong>Pivot Perfection:</strong> After a jump stop, practice proper pivoting with a firmly planted pivot foot.</li>
+          <li><strong>Dribble, Stop, Pass:</strong> Legal stop → pivot → pass to avoid traveling or double dribble.</li>
+        </ul>
+      </div>
+
+      <h3>Quizzes &amp; Answers</h3>
+      <div class="block qa">
+        <dl>
+          <dt>Question: What is a ‘double dribble’ violation?</dt><dd>Answer: Both A and C (Dribbling with two hands simultaneously and Dribbling, stopping, then dribbling again).</dd>
+          <dt>Question: A ‘traveling’ violation occurs when a player moves their pivot foot illegally without doing what?</dt><dd>Answer: All of the above (Shooting, Passing, Dribbling).</dd>
+          <dt>Question: What is a ‘backcourt violation’?</dt><dd>Answer: Both A and B (Taking too long to cross half court; illegally returning the ball to backcourt).</dd>
+          <dt>Question: A player carrying the ball inbounds has how many seconds to pass the ball?</dt><dd>Answer: 5 seconds.</dd>
+          <dt>Question: ‘Carrying’ or ‘palming’ is a violation where a player's hand…</dt><dd>Answer: …goes under the ball, causing it to pause.</dd>
+        </dl>
+      </div>
+
+      <a class="top-link" href="#top">↑ Back to top</a>
+    </section>
+
+    <!-- M4 -->
+    <section id="m4">
+      <h2>M4: Fouls &amp; Official Signals</h2>
+
+      <h3>Learning Outcomes</h3>
+      <div class="block">
+        <ul>
+          <li>Distinguish between a foul and a violation.</li>
+          <li>Identify different types of personal fouls (e.g., blocking, charging).</li>
+          <li>Understand the purpose of a technical foul.</li>
+          <li>Learn the correct 3‑step procedure for reporting a foul and recognize key official signals.</li>
+        </ul>
+      </div>
+
+      <h3>Key Concepts</h3>
+      <div class="block">
+        <ul>
+          <li><strong>Foul Definition:</strong> An infraction involving illegal physical contact with an opponent.</li>
+          <li><strong>Types of Fouls:</strong></li>
+          <ul>
+            <li><strong>Personal Foul:</strong> Illegal contact like hitting, pushing, or holding.</li>
+            <li><strong>Charging:</strong> Offensive foul where the ball handler runs into a stationary defender.</li>
+            <li><strong>Blocking:</strong> Defensive foul for impeding progress without position.</li>
+            <li><strong>Technical Foul:</strong> Non‑contact, typically unsportsmanlike behavior.</li>
+          </ul>
+          <li><strong>Foul Reporting:</strong> 3‑step sequence — <em>Number of Player → Type of Foul → Free Throws (or direction)</em>.</li>
+          <li><strong>Key Signals:</strong> Hands on hips for blocking; rolling fists for traveling, etc.</li>
+        </ul>
+      </div>
+
+      <h3>Practical Drills</h3>
+      <div class="block">
+        <ul>
+          <li><strong>Referee Signal Mirror:</strong> Coach performs signals; players mirror to learn the game’s visual language.</li>
+          <li><strong>Charge vs. Block Challenge:</strong> Controlled 1‑on‑1 to practice and differentiate charge vs. block.</li>
+        </ul>
+      </div>
+
+      <h3>Quizzes &amp; Answers</h3>
+      <div class="block qa">
+        <dl>
+          <dt>Question: What is the main difference between a foul and a violation?</dt><dd>Answer: Fouls involve illegal physical contact; violations do not.</dd>
+          <dt>Question: What is the correct 3‑step sequence for reporting a foul?</dt><dd>Answer: Number of Player → Type of Foul → Free Throws/Direction.</dd>
+          <dt>Question: What is the official signal for a ‘blocking’ foul?</dt><dd>Answer: Both hands on hips.</dd>
+          <dt>Question: A ‘technical foul’ can be called for what reason?</dt><dd>Answer: Disrespectful or unsportsmanlike conduct.</dd>
+          <dt>Question: The signal for ‘traveling’ is:</dt><dd>Answer: Rotate fists.</dd>
+        </dl>
+      </div>
+
+      <a class="top-link" href="#top">↑ Back to top</a>
+    </section>
+
+    <!-- M5 -->
+    <section id="m5">
+      <h2>M5: Equipment &amp; Court</h2>
+
+      <h3>Learning Outcomes</h3>
+      <div class="block">
+        <ul>
+          <li>State the standard dimensions of a basketball court.</li>
+          <li>Identify the regulation height of the hoop for different age groups.</li>
+          <li>Distinguish between the three main basketball sizes and their uses.</li>
+          <li>Recognize the key lines and areas of the court.</li>
+        </ul>
+      </div>
+
+      <h3>Key Concepts</h3>
+      <div class="block">
+        <ul>
+          <li><strong>Court Dimensions:</strong> Standard court size is <strong>28m × 15m</strong>.</li>
+          <li><strong>Hoop Height:</strong> <strong>3.05 m (10 ft)</strong> for ages 12+; <strong>2.60 m</strong> for under‑12.</li>
+          <li><strong>Ball Sizes:</strong></li>
+          <ul>
+            <li><strong>Size 7:</strong> Men’s competition.</li>
+            <li><strong>Size 6:</strong> Women’s competition.</li>
+            <li><strong>Size 5:</strong> Under‑12 (mini) basketball.</li>
+          </ul>
+          <li><strong>Court Markings:</strong> Sidelines, baselines, center circle, free‑throw line, and the “paint/key”.</li>
+        </ul>
+      </div>
+
+      <h3>Practical Drills</h3>
+      <div class="block">
+        <ul>
+          <li><strong>Court Landmark Tour:</strong> Players sprint and touch called lines/areas to lock in court geography.</li>
+          <li><strong>Ball ID Line‑up:</strong> Identify the correct ball size by age/gender category.</li>
+        </ul>
+      </div>
+
+      <h3>Quizzes &amp; Answers</h3>
+      <div class="block qa">
+        <dl>
+          <dt>Question: What is the standard court size for players aged 12 and above?</dt><dd>Answer: 28m × 15m.</dd>
+          <dt>Question: What is the regulation hoop height for ages 12 and above?</dt><dd>Answer: 3.05 m.</dd>
+          <dt>Question: Which ball size is used for Men’s competition?</dt><dd>Answer: Size 7.</dd>
+          <dt>Question: A Size 6 basketball is standard for which category?</dt><dd>Answer: Women.</dd>
+          <dt>Question: What is the standard jersey numbering range for players?</dt><dd>Answer: 4–15.</dd>
+        </dl>
+      </div>
+
+      <a class="top-link" href="#top">↑ Back to top</a>
+    </section>
+
+    <!-- M6 -->
+    <section id="m6">
+      <h2>M6: Basic Skills — Movement &amp; Ball Handling</h2>
+
+      <h3>Learning Outcomes</h3>
+      <div class="block">
+        <ul>
+          <li>Understand the importance of balance as the foundation of all movement.</li>
+          <li>Differentiate between a ‘one count stop’ (jump stop) and a ‘two count stop’ (stride stop).</li>
+          <li>Define ‘pivoting’ and identify the pivot foot.</li>
+          <li>Recognize the ‘triple threat’ position and its three options.</li>
+        </ul>
+      </div>
+
+      <h3>Key Concepts</h3>
+      <div class="block">
+        <ul>
+          <li><strong>Balance:</strong> Good body position; knees flexed; weight on the balls of the feet.</li>
+          <li><strong>Stops:</strong></li>
+          <ul>
+            <li><strong>One Count Stop (Jump Stop):</strong> Land on both feet simultaneously.</li>
+            <li><strong>Two Count Stop (Stride Stop):</strong> Land on one foot, then the other.</li>
+          </ul>
+          <li><strong>Pivoting:</strong> Keep one foot planted (pivot foot) while stepping with the other.</li>
+          <li><strong>Triple Threat:</strong> Be ready to <em>Shoot</em>, <em>Dribble</em>, or <em>Pass</em>.</li>
+        </ul>
+      </div>
+
+      <h3>Practical Drills</h3>
+      <div class="block">
+        <ul>
+          <li><strong>Figure Eight Relay:</strong> Ball handling through figure‑eight patterns around legs for coordination.</li>
+          <li><strong>Two‑Count Stop and Pivot:</strong> Stride stop → pivot → pass to reinforce legal footwork.</li>
+        </ul>
+      </div>
+
+      <h3>Quizzes &amp; Answers</h3>
+      <div class="block qa">
+        <dl>
+          <dt>Question: What is the ‘one count stop’?</dt><dd>Answer: Landing on both feet at the same time.</dd>
+          <dt>Question: In pivoting, the foot that remains in contact with the floor is called the…</dt><dd>Answer: Pivot foot.</dd>
+          <dt>Question: What is key to good balance when moving on the court?</dt><dd>Answer: Head up, not leaning forward.</dd>
+          <dt>Question: The ‘two count stop’ involves…</dt><dd>Answer: Landing on one foot, followed by the other.</dd>
+          <dt>Question: The main purpose of the ‘triple threat’ position is to…</dt><dd>Answer: Be ready to shoot, pass, or dribble.</dd>
+        </dl>
+      </div>
+
+      <a class="top-link" href="#top">↑ Back to top</a>
+    </section>
+
+    <!-- M7 -->
+    <section id="m7">
+      <h2>M7: Dribbling Skills</h2>
+
+      <h3>Learning Outcomes</h3>
+      <div class="block">
+        <ul>
+          <li>Understand the correct biomechanics of dribbling.</li>
+          <li>Identify different types of dribbles for various situations (low, speed, change of pace).</li>
+          <li>Recognize key dribble moves like the crossover and hesitation.</li>
+          <li>Appreciate the importance of dribbling with your head up.</li>
+        </ul>
+      </div>
+
+      <h3>Key Concepts</h3>
+      <div class="block">
+        <ul>
+          <li><strong>Dribbling Biomechanics:</strong> Use fingertips and a wrist snap; keep head up to see the court.</li>
+          <li><strong>Types of Dribbles:</strong></li>
+          <ul>
+            <li><strong>Low Dribble:</strong> When closely guarded to protect the ball.</li>
+            <li><strong>Speed Dribble:</strong> Move quickly in open court.</li>
+            <li><strong>Change of Pace:</strong> Slow then accelerate to deceive a defender.</li>
+          </ul>
+          <li><strong>Dribble Moves:</strong></li>
+          <ul>
+            <li><strong>Crossover:</strong> Push the ball hand‑to‑hand in front of the body.</li>
+            <li><strong>Hesitation:</strong> Brief pause to freeze the defender.</li>
+          </ul>
+        </ul>
+      </div>
+
+      <h3>Practical Drills</h3>
+      <div class="block">
+        <ul>
+          <li><strong>Cone Weave Challenge:</strong> Weave through cones using right, left, and crossover dribbles.</li>
+          <li><strong>Pressure Dribble:</strong> Dribble inside a small square against pressure—protect the ball, eyes up.</li>
+        </ul>
+      </div>
+
+      <h3>Quizzes &amp; Answers</h3>
+      <div class="block qa">
+        <dl>
+          <dt>Question: What is the primary purpose of the ‘low dribble’?</dt><dd>Answer: To be used when a player is closely guarded.</dd>
+          <dt>Question: The biomechanics of dribbling involve pushing the ball with the…</dt><dd>Answer: Fingers and a snap of the wrist.</dd>
+          <dt>Question: What is the key to a ‘change of pace’ dribble?</dt><dd>Answer: Slow down, then explode.</dd>
+          <dt>Question: The ‘crossover’ involves pushing the ball from one hand to the other…</dt><dd>Answer: In front of the body.</dd>
+          <dt>Question: When speed dribbling, a player should push the ball…</dt><dd>Answer: Ahead several feet.</dd>
+        </dl>
+      </div>
+
+      <a class="top-link" href="#top">↑ Back to top</a>
+    </section>
+
+    <!-- M8 -->
+    <section id="m8">
+      <h2>M8: Shooting &amp; Rebounding</h2>
+
+      <h3>Learning Outcomes</h3>
+      <div class="block">
+        <ul>
+          <li>Identify the key components of shooting biomechanics.</li>
+          <li>Describe technique for lay‑up and jump shot.</li>
+          <li>Understand ‘boxing out’ for rebounding.</li>
+          <li>Differentiate offensive vs. defensive rebounding.</li>
+        </ul>
+      </div>
+
+      <h3>Key Concepts</h3>
+      <div class="block">
+        <ul>
+          <li><strong>Shooting Biomechanics:</strong> <em>Body Balance</em>, <em>Aiming</em>, <em>Shooting Action</em> (lift, elbow in), and strong <em>Follow‑Through</em>.</li>
+          <li><strong>Types of Shots:</strong> Lay‑up, Jump Shot, Set Shot.</li>
+          <li><strong>Rebounding:</strong> Gaining possession after a missed shot.</li>
+          <li><strong>Boxing Out:</strong> Positioning between opponent and basket to secure rebound.</li>
+        </ul>
+      </div>
+
+      <h3>Practical Drills</h3>
+      <div class="block">
+        <ul>
+          <li><strong>Mikan Drill:</strong> Alternate lay‑ups with both hands under the basket.</li>
+          <li><strong>Box Out War:</strong> 1‑on‑1 positioning and legal box‑out to secure rebounds.</li>
+        </ul>
+      </div>
+
+      <h3>Quizzes &amp; Answers</h3>
+      <div class="block qa">
+        <dl>
+          <dt>Question: What are the biomechanics of shooting?</dt><dd>Answer: Body balance, aiming, shooting‑action, and follow‑through.</dd>
+          <dt>Question: For a lay‑up, aim for a spot…</dt><dd>Answer: On the board to bank the shot in.</dd>
+          <dt>Question: Most important element in defensive rebounding?</dt><dd>Answer: Position, timing, and securing the ball.</dd>
+          <dt>Question: A ‘hook shot’ is generally used by…</dt><dd>Answer: A tall player near the basket.</dd>
+          <dt>Question: Release angle for shooting is about…</dt><dd>Answer: 45 degrees.</dd>
+        </dl>
+      </div>
+
+      <a class="top-link" href="#top">↑ Back to top</a>
+    </section>
+
+    <!-- M9 -->
+    <section id="m9">
+      <h2>M9: Strategy &amp; Tactics</h2>
+
+      <h3>Learning Outcomes</h3>
+      <div class="block">
+        <ul>
+          <li>Understand basic offensive plays (give‑and‑go, screen).</li>
+          <li>Describe objectives of a fast break.</li>
+          <li>Compare man‑to‑man vs. zone defense.</li>
+          <li>Recognize principles of transition defense.</li>
+        </ul>
+      </div>
+
+      <h3>Key Concepts</h3>
+      <div class="block">
+        <ul>
+          <li><strong>Basic Offensive Plays:</strong></li>
+          <ul>
+            <li><strong>Give‑and‑Go:</strong> Pass and immediately cut to the basket for return pass.</li>
+            <li><strong>Screen (‘Pick’):</strong> Stationary block on a defender to free a teammate.</li>
+          </ul>
+          <li><strong>Fast Break:</strong> Push the ball quickly to score before the defense sets.</li>
+          <li><strong>Types of Defense:</strong> Man‑to‑Man (guard a player) vs. Zone (guard an area).</li>
+          <li><strong>Transition Defense:</strong> Sprint back to prevent easy scores as first priority.</li>
+        </ul>
+      </div>
+
+      <h3>Practical Drills</h3>
+      <div class="block">
+        <ul>
+          <li><strong>Give and Go (2v0):</strong> Timing and execution without a defender.</li>
+          <li><strong>Defend the Down Screen (3v0):</strong> Timing/spacing running off a screen.</li>
+        </ul>
+      </div>
+
+      <h3>Quizzes &amp; Answers</h3>
+      <div class="block qa">
+        <dl>
+          <dt>Question: What is the ‘give‑and‑go’?</dt><dd>Answer: Pass to a teammate and cut to the basket for a return pass.</dd>
+          <dt>Question: A key principle of ‘Tandem Defense’?</dt><dd>Answer: Defenders remain constantly active and vocal.</dd>
+          <dt>Question: First objective of a fast break?</dt><dd>Answer: Create an easy, high‑percentage shot (e.g., lay‑up).</dd>
+          <dt>Question: A ‘screen’ in basketball is when an offensive player…</dt><dd>Answer: Becomes a stationary barrier to free a teammate.</dd>
+          <dt>Question: Three types of screens mentioned?</dt><dd>Answer: Up, Down, Cross; Single, Double, Staggered (all listed).</dd>
+        </dl>
+      </div>
+
+      <a class="top-link" href="#top">↑ Back to top</a>
+    </section>
+
+    <!-- M10 -->
+    <section id="m10">
+      <h2>M10: Coaching Communication &amp; Ethics</h2>
+
+      <h3>Learning Outcomes</h3>
+      <div class="block">
+        <ul>
+          <li>Differentiate between verbal and non‑verbal communication.</li>
+          <li>Learn techniques for instructions and correcting errors.</li>
+          <li>Understand key principles of the Coaches’ Code of Conduct.</li>
+          <li>Appreciate the importance of being a positive role model.</li>
+        </ul>
+      </div>
+
+      <h3>Key Concepts</h3>
+      <div class="block">
+        <ul>
+          <li><strong>Communication Skills:</strong> Verbal (clear instructions) and Non‑verbal (body language, expressions).</li>
+          <li><strong>Providing Feedback:</strong> Use the ‘sandwich’ method: positive → correction → positive.</li>
+          <li><strong>Coaches’ Code of Conduct:</strong> Emphasizes fair play, respect, safety, and athlete well‑being. First point: treat each athlete as an individual.</li>
+          <li><strong>Role of the Coach:</strong> Be a positive role model; lead by example.</li>
+        </ul>
+      </div>
+
+      <h3>Practical Drills</h3>
+      <div class="block">
+        <ul>
+          <li><strong>30‑Second Demo:</strong> Explain and demonstrate a simple skill within 30 seconds.</li>
+          <li><strong>Feedback Sandwich Practice:</strong> Practice delivering feedback using the sandwich model.</li>
+        </ul>
+      </div>
+
+      <h3>Quizzes &amp; Answers</h3>
+      <div class="block qa">
+        <dl>
+          <dt>Question: Which of these is a form of non‑verbal communication?</dt><dd>Answer: Facial Expressions and Body Language.</dd>
+          <dt>Question: What is the first point in the Coaches’ Code of Conduct?</dt><dd>Answer: Treat each athlete as an individual.</dd>
+          <dt>Question: When correcting errors, recommended practice?</dt><dd>Answer: Use the ‘sandwich’ method.</dd>
+          <dt>Question: Which is NOT a listed way of ‘How Do I Put It Together?’ for communication?</dt><dd>Answer: Writing a report.</dd>
+          <dt>Question: Who else does a coach need to communicate with besides players?</dt><dd>Answer: Parents, Fans, and Game Officials.</dd>
+        </dl>
+      </div>
+
+      <a class="top-link" href="#top">↑ Back to top</a>
+    </section>
+
+    <!-- M11 -->
+    <section id="m11">
+      <h2>M11: Planning Training Schedules</h2>
+
+      <h3>Learning Outcomes</h3>
+      <div class="block">
+        <ul>
+          <li>Identify the key components of a well‑structured practice plan.</li>
+          <li>Understand the purpose of each component (warm‑up, scrimmage, etc.).</li>
+          <li>Grasp ‘Planning Progression’.</li>
+          <li>Create a simple daily practice plan.</li>
+        </ul>
+      </div>
+
+      <h3>Key Concepts</h3>
+      <div class="block">
+        <ul>
+          <li><strong>Practice Components:</strong> <em>Warm‑up</em>, <em>Review</em>, <em>New Skills</em>, <em>Scrimmage</em>, <em>Team Circle/Evaluation</em>.</li>
+          <li><strong>Teaching New Skills:</strong> Keep instructions brief and focused.</li>
+          <li><strong>Scrimmages:</strong> Apply drill skills in game‑like settings.</li>
+          <li><strong>Planning Progression:</strong> Increase difficulty and introduce new skills according to ability level.</li>
+        </ul>
+      </div>
+
+      <h3>Practical Drills</h3>
+      <div class="block">
+        <ul>
+          <li><strong>20‑Minute Mini‑Practice Plan:</strong> Design a balanced, timed practice on paper.</li>
+          <li><strong>Constraint‑Led Game Design:</strong> Create a small‑sided game with a rule tweak to solve a team problem (e.g., encourage passing).</li>
+        </ul>
+      </div>
+
+      <h3>Quizzes &amp; Answers</h3>
+      <div class="block qa">
+        <dl>
+          <dt>Question: Six key components of a well‑planned practice?</dt><dd>Answer: Warm‑up, Review, New Skills, Scrimmage, Team Circle, Evaluation.</dd>
+          <dt>Question: Main purpose of a warm‑up?</dt><dd>Answer: Prepare the body and reduce injury risk.</dd>
+          <dt>Question: Teaching new skills should…</dt><dd>Answer: Keep instruction to a minimum.</dd>
+          <dt>Question: ‘Planning Progression’ means coaches should…</dt><dd>Answer: Progress at a speed suitable to players’ ability.</dd>
+          <dt>Question: What is ‘Preseason Planning’?</dt><dd>Answer: Planning the program before the season begins.</dd>
+        </dl>
+      </div>
+
+      <a class="top-link" href="#top">↑ Back to top</a>
+    </section>
+
+    <!-- M12 -->
+    <section id="m12">
+      <h2>M12: Introduction to Sports Science</h2>
+
+      <h3>Learning Outcomes</h3>
+      <div class="block">
+        <ul>
+          <li>Identify the main components of physical fitness.</li>
+          <li>Understand the three energy systems used in basketball.</li>
+          <li>Learn basic principles of training (Progression, Overload).</li>
+          <li>Know the R.I.C.E. protocol for minor injuries.</li>
+        </ul>
+      </div>
+
+      <h3>Key Concepts</h3>
+      <div class="block">
+        <ul>
+          <li><strong>Components of Fitness:</strong> Cardiovascular Endurance, Muscular Strength, Flexibility, Body Composition, Speed, Agility.</li>
+          <li><strong>Energy Systems:</strong></li>
+          <ul>
+            <li><strong>Anaerobic/ATP‑PC (0–10 s):</strong> Explosive bursts.</li>
+            <li><strong>Anaerobic Glycolysis (10 s – 3 min):</strong> Sustained high‑intensity efforts.</li>
+            <li><strong>Aerobic (&gt;3 min):</strong> Longer, lower‑intensity activity.</li>
+          </ul>
+          <li><strong>Principles of Training:</strong> <em>Progression</em> (gradually increase load); <em>Overload</em> (stress beyond normal capacity).</li>
+          <li><strong>R.I.C.E. Protocol:</strong> Rest, Ice, Compress, Elevate.</li>
+        </ul>
+      </div>
+
+      <h3>Practical Drills</h3>
+      <div class="block">
+        <ul>
+          <li><strong>Lead a Dynamic Warm‑up:</strong> Guide a series of movements to prepare the body.</li>
+          <li><strong>R.I.C.E. Injury Scenario:</strong> Role‑play explaining and applying R.I.C.E. to a simulated injury.</li>
+        </ul>
+      </div>
+
+      <h3>Quizzes &amp; Answers</h3>
+      <div class="block qa">
+        <dl>
+          <dt>Question: Components of physical fitness listed?</dt><dd>Answer: Cardiovascular endurance, Muscular strength, Flexibility, Body composition, Speed, Agility.</dd>
+          <dt>Question: R.I.C.E. stands for…</dt><dd>Answer: Rest, Ice, Compress, Elevate.</dd>
+          <dt>Question: ‘Progression’ principle means…</dt><dd>Answer: Advancing toward a goal step by step.</dd>
+        </dl>
+        <dl>
+          <dt>Question: Primary energy system for a 0–10 s explosive move (e.g., lay‑up)?</dt><dd>Answer: Anaerobic/ATP‑PC.</dd>
+          <dt>Question: ‘Overload’ states…</dt><dd>Answer: The body must be stressed beyond normal capacity to improve.</dd>
+        </dl>
+      </div>
+
+      <a class="top-link" href="#top">↑ Back to top</a>
+    </section>
+
+    <section class="page-break">
+      <p class="fine">© MABA/NSC Level I — Curriculum layout prepared for classroom use. This HTML is designed for clarity on screens and print. Use your browser’s “Print” to generate a PDF if needed.</p>
+    </section>
+
+  </main>
+</body>
+</html>
