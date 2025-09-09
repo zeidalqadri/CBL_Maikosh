@@ -1,0 +1,303 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    function isAdmin() {
+      return request.auth != null && 
+             request.auth.token.get('https://cbl-maikosh.com/roles', []).hasAny(['admin', 'super_admin', 'system_admin']);
+    }
+    
+    function isModerator() {
+      return request.auth != null && 
+             request.auth.token.get('https://cbl-maikosh.com/roles', []).hasAny(['admin', 'super_admin', 'system_admin', 'moderator']);
+    }
+    
+    function isInstructor() {
+      return request.auth != null && 
+             request.auth.token.get('https://cbl-maikosh.com/roles', []).hasAny(['admin', 'super_admin', 'system_admin', 'moderator', 'instructor']);
+    }
+    
+    function isValidUser() {
+      return isAuthenticated() && 
+             request.auth.token.email_verified == true;
+    }
+    
+    function isRateLimited() {
+      return request.time < resource.data.get('lastWrite', timestamp.value(0)) + duration.value(1, 's');
+    }
+    
+    function isValidQuizSubmission() {
+      return request.resource.data.keys().hasAll(['userId', 'moduleId', 'quizType', 'score', 'totalQuestions', 'percentage', 'answers', 'submittedAt']) &&
+             request.resource.data.userId is string &&
+             request.resource.data.moduleId is string &&
+             request.resource.data.quizType is string &&
+             request.resource.data.score is number &&
+             request.resource.data.totalQuestions is number &&
+             request.resource.data.percentage is number &&
+             request.resource.data.percentage >= 0 &&
+             request.resource.data.percentage <= 100 &&
+             request.resource.data.score >= 0 &&
+             request.resource.data.score <= request.resource.data.totalQuestions &&
+             request.resource.data.answers is list &&
+             request.resource.data.submittedAt is string;
+    }
+    
+    function isValidProgressUpdate() {
+      return request.resource.data.keys().hasAll(['userId', 'modules', 'updatedAt']) &&
+             request.resource.data.userId is string &&
+             request.resource.data.modules is map &&
+             request.resource.data.updatedAt is string;
+    }
+    
+    function isValidAssignmentSubmission() {
+      return request.resource.data.keys().hasAll(['userId', 'moduleId', 'assignmentType', 'content', 'submittedAt']) &&
+             request.resource.data.userId is string &&
+             request.resource.data.moduleId is string &&
+             request.resource.data.assignmentType is string &&
+             request.resource.data.content is string &&
+             request.resource.data.submittedAt is string;
+    }
+
+    function isValidUserSession() {
+      return request.resource.data.keys().hasAll(['userId', 'startTime']) &&
+             request.resource.data.userId is string &&
+             request.resource.data.startTime is timestamp;
+    }
+
+    function isValidLearningAnalytics() {
+      return request.resource.data.keys().hasAll(['userId', 'timestamp']) &&
+             request.resource.data.userId is string &&
+             request.resource.data.timestamp is timestamp;
+    }
+    
+    // Users Collection Rules
+    match /users/{userId} {
+      allow read: if isValidUser() && (isOwner(userId) || isAdmin());
+      allow write: if isValidUser() && (
+        (isOwner(userId) && isValidUserUpdate()) || 
+        isAdmin()
+      );
+      allow create: if isValidUser() && isOwner(userId) && isValidUserCreation();
+      allow delete: if isAdmin();
+      
+      function isValidUserUpdate() {
+        return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['email', 'uid', 'role', 'createdAt']);
+      }
+      
+      function isValidUserCreation() {
+        return request.resource.data.keys().hasAll(['email', 'name', 'createdAt']) &&
+               request.resource.data.email == request.auth.token.email &&
+               request.resource.data.createdAt is timestamp;
+      }
+    }
+    
+    // User Progress Collection Rules
+    match /userProgress/{userId} {
+      allow read: if isValidUser() && (isOwner(userId) || isInstructor());
+      allow write: if isValidUser() && isOwner(userId) && isValidProgressUpdate() && !isRateLimited();
+      allow create: if isValidUser() && isOwner(userId) && isValidProgressUpdate();
+      allow delete: if isAdmin();
+    }
+    
+    // Quiz Submissions Collection Rules
+    match /quizSubmissions/{submissionId} {
+      allow read: if isValidUser() && (
+        isOwner(resource.data.userId) || 
+        isInstructor()
+      );
+      allow create: if isValidUser() && 
+                   isOwner(request.resource.data.userId) && 
+                   isValidQuizSubmission() &&
+                   !isRateLimited();
+      allow update: if false; // Quiz submissions should be immutable
+      allow delete: if isAdmin();
+    }
+    
+    // Assignment Submissions Collection Rules
+    match /assignmentSubmissions/{submissionId} {
+      allow read: if isValidUser() && (
+        isOwner(resource.data.userId) || 
+        isInstructor()
+      );
+      allow create: if isValidUser() && 
+                   isOwner(request.resource.data.userId) && 
+                   isValidAssignmentSubmission() &&
+                   !isRateLimited();
+      allow update: if isValidUser() && 
+                   isOwner(resource.data.userId) && 
+                   request.time < resource.data.submittedAt + duration.value(24, 'h'); // 24-hour edit window
+      allow delete: if isAdmin();
+    }
+    
+    // User Sessions Collection Rules
+    match /userSessions/{sessionId} {
+      allow read: if isValidUser() && (
+        isOwner(resource.data.userId) || 
+        isAdmin()
+      );
+      allow create: if isValidUser() && 
+                   isOwner(request.resource.data.userId) && 
+                   isValidUserSession();
+      allow update: if isValidUser() && 
+                   isOwner(resource.data.userId) &&
+                   request.time < resource.data.startTime + duration.value(24, 'h'); // Sessions can be updated for 24 hours
+      allow delete: if isAdmin();
+    }
+    
+    // Learning Analytics Collection Group Rules
+    match /learningAnalytics/{userId}/{category}/{docId} {
+      allow read: if isValidUser() && (
+        isOwner(userId) || 
+        isInstructor()
+      );
+      allow create: if isValidUser() && 
+                   isOwner(userId) && 
+                   isValidLearningAnalytics();
+      allow update: if false; // Analytics should be immutable
+      allow delete: if isAdmin();
+    }
+    
+    // Modules Collection Rules (Read-only for users, admin-only for modifications)
+    match /modules/{moduleId} {
+      allow read: if isValidUser();
+      allow write: if isAdmin();
+      allow create: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // User Progress Subcollection Rules (for individual module progress)
+    match /users/{userId}/progress/{moduleId} {
+      allow read: if isValidUser() && (isOwner(userId) || isInstructor());
+      allow write: if isValidUser() && isOwner(userId) && !isRateLimited();
+      allow create: if isValidUser() && isOwner(userId);
+      allow delete: if isAdmin();
+    }
+    
+    // System Collection Rules (Health checks, monitoring)
+    match /system/{docId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+      allow create: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // Admin Dashboard Data Collection Rules
+    match /adminDashboard/{docId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+      allow create: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // Error Logs Collection Rules
+    match /errorLogs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false; // Error logs should only be written by server-side functions
+      allow create: if false; // Error logs should only be created by server-side functions
+      allow delete: if isAdmin();
+    }
+    
+    // Performance Metrics Collection Rules
+    match /performanceMetrics/{metricId} {
+      allow read: if isAdmin();
+      allow write: if false; // Metrics should only be written by server-side functions
+      allow create: if false; // Metrics should only be created by server-side functions
+      allow delete: if isAdmin();
+    }
+    
+    // Achievements Collection Rules
+    match /achievements/{achievementId} {
+      allow read: if isValidUser();
+      allow write: if isAdmin();
+      allow create: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // User Achievements Collection Rules
+    match /userAchievements/{userId} {
+      allow read: if isValidUser() && (isOwner(userId) || isInstructor());
+      allow write: if isValidUser() && isOwner(userId);
+      allow create: if isValidUser() && isOwner(userId);
+      allow delete: if isAdmin();
+    }
+    
+    // Notifications Collection Rules
+    match /notifications/{userId}/{notificationId} {
+      allow read: if isValidUser() && isOwner(userId);
+      allow write: if isValidUser() && isOwner(userId);
+      allow create: if isValidUser() && (isOwner(userId) || isAdmin());
+      allow delete: if isValidUser() && isOwner(userId);
+    }
+    
+    // Course Content Collection Rules
+    match /courseContent/{contentId} {
+      allow read: if isValidUser();
+      allow write: if isInstructor();
+      allow create: if isInstructor();
+      allow delete: if isAdmin();
+    }
+    
+    // Discussion Forums Collection Rules
+    match /discussions/{discussionId} {
+      allow read: if isValidUser();
+      allow write: if isValidUser() && (
+        isOwner(resource.data.get('authorId', '')) || 
+        isModerator()
+      );
+      allow create: if isValidUser();
+      allow delete: if isModerator();
+    }
+    
+    // Discussion Posts Collection Rules
+    match /discussions/{discussionId}/posts/{postId} {
+      allow read: if isValidUser();
+      allow write: if isValidUser() && (
+        isOwner(resource.data.get('authorId', '')) || 
+        isModerator()
+      );
+      allow create: if isValidUser();
+      allow delete: if isModerator();
+    }
+    
+    // Backup Collections (Admin only)
+    match /backups/{backupId} {
+      allow read: if isAdmin();
+      allow write: if false; // Backups should only be written by server-side functions
+      allow create: if false; // Backups should only be created by server-side functions
+      allow delete: if isAdmin();
+    }
+    
+    // Audit Logs Collection (Read-only for admins)
+    match /auditLogs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false; // Audit logs should only be written by server-side functions
+      allow create: if false; // Audit logs should only be created by server-side functions
+      allow delete: if false; // Audit logs should never be deleted
+    }
+    
+    // Rate Limiting Collection (Internal use)
+    match /rateLimiting/{userId} {
+      allow read: if false; // Internal use only
+      allow write: if false; // Internal use only
+      allow create: if false; // Internal use only
+      allow delete: if false; // Internal use only
+    }
+    
+    // UAT Testing - Allow read for all, write for authenticated
+    // TODO: Revert to strict rules before production
+    match /{document=**} {
+      allow read: if true;  // Allow all reads for UAT testing
+      allow write: if request.auth != null;  // Allow writes for authenticated users
+    }
+  }
+}
