@@ -69,3 +69,23 @@ build/
 
 # Claude backup
 .claude-backup/
+
+# Claude development tools
+.claude/
+
+# Large PDF files (intentionally excluded due to size)
+*.pdf
+MABA_NSC_Level_I_full.pdf
+
+# Binary archives
+*.zip
+cbl_maikosh_ninja.zip
+
+# Monitoring directory with corrupted files
+monitoring/
+
+# Terraform directory with corrupted files  
+terraform/
+
+# Public resources with large PDFs
+public/resources/
